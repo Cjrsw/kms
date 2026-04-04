@@ -1,10 +1,9 @@
-const API_BASE_URL =
-  process.env.KMS_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:8000/api/v1";
-export const BROWSER_API_BASE_URL = process.env.NEXT_PUBLIC_BROWSER_API_BASE_URL ?? "http://localhost:8000/api/v1";
-const DEV_USERNAME = process.env.KMS_DEV_BOOTSTRAP_USERNAME ?? "admin";
-const DEV_PASSWORD = process.env.KMS_DEV_BOOTSTRAP_PASSWORD ?? "123456";
+import "server-only";
+
+import { redirect } from "next/navigation";
+
+import { getSessionToken } from "./auth";
+import { API_BASE_URL } from "./config";
 
 export type AttachmentItem = {
   id: number;
@@ -126,35 +125,27 @@ export type AdminContent = {
   repositories: AdminRepositoryItem[];
 };
 
-export async function getBootstrapToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      username: DEV_USERNAME,
-      password: DEV_PASSWORD
-    }),
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error("Unable to bootstrap auth token.");
+async function getRequiredAccessToken(): Promise<string> {
+  const token = await getSessionToken();
+  if (!token) {
+    redirect("/login");
   }
 
-  const data = (await response.json()) as { access_token: string };
-  return data.access_token;
+  return token;
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`
     },
     cache: "no-store"
   });
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: ${path}`);
@@ -164,7 +155,7 @@ async function apiFetch<T>(path: string): Promise<T> {
 }
 
 async function apiJsonRequest<T>(path: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: {
@@ -174,6 +165,10 @@ async function apiJsonRequest<T>(path: string, method: "POST" | "PUT" | "DELETE"
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store"
   });
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: ${method} ${path}`);
@@ -203,7 +198,7 @@ export async function updateNote(
   noteId: string,
   payload: { title: string; content_text: string; content_json?: string }
 ): Promise<NoteDetail> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/notes/${noteId}`, {
     method: "PUT",
     headers: {
@@ -213,6 +208,10 @@ export async function updateNote(
     body: JSON.stringify(payload),
     cache: "no-store"
   });
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}`);
@@ -226,7 +225,7 @@ export async function uploadNoteAttachment(
   noteId: string,
   file: File
 ): Promise<AttachmentItem> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const formData = new FormData();
   formData.set("file", file);
 
@@ -238,6 +237,10 @@ export async function uploadNoteAttachment(
     body: formData,
     cache: "no-store"
   });
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}/attachments`);

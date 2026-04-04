@@ -3,6 +3,7 @@ import { UploadCloud } from "lucide-react";
 import { AppShell } from "../../../../../../components/app-shell";
 import { NoteEditor } from "../../../../../../components/note-editor";
 import { getNote } from "../../../../../../lib/api";
+import { requireCurrentUser } from "../../../../../../lib/auth";
 import { saveNoteAction, uploadAttachmentAction } from "./actions";
 
 type NoteEditPageProps = {
@@ -11,6 +12,7 @@ type NoteEditPageProps = {
 
 export default async function NoteEditPage({ params }: NoteEditPageProps) {
   const { repoId, noteId } = await params;
+  const currentUser = await requireCurrentUser();
 
   let note: Awaited<ReturnType<typeof getNote>> | null = null;
   try {
@@ -28,6 +30,7 @@ export default async function NoteEditPage({ params }: NoteEditPageProps) {
 
   return (
     <AppShell
+      currentUser={currentUser}
       title={`编辑：${note.title}`}
       description="当前编辑页已经切换为 TipTap，沿用原型里的白底工具栏和大正文编辑区布局。"
     >

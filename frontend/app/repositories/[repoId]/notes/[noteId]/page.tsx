@@ -2,7 +2,8 @@ import Link from "next/link";
 import { FileText, Sparkles } from "lucide-react";
 import { notFound } from "next/navigation";
 import { AppShell } from "../../../../../components/app-shell";
-import { BROWSER_API_BASE_URL, getNote, getRepository } from "../../../../../lib/api";
+import { getNote, getRepository } from "../../../../../lib/api";
+import { requireCurrentUser } from "../../../../../lib/auth";
 
 type NoteDetailPageProps = {
   params: Promise<{ repoId: string; noteId: string }>;
@@ -10,6 +11,7 @@ type NoteDetailPageProps = {
 
 export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
   const { repoId, noteId } = await params;
+  const currentUser = await requireCurrentUser();
 
   let repository: Awaited<ReturnType<typeof getRepository>> | null = null;
   let note: Awaited<ReturnType<typeof getNote>> | null = null;
@@ -27,6 +29,7 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
 
   return (
     <AppShell
+      currentUser={currentUser}
       title={note.title}
       description="这是后续搜索和问答来源跳转的落点页，布局沿用原型里的左信息栏加右正文阅读区。"
     >
@@ -108,7 +111,7 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
                     <a
                       key={attachment.id}
                       className="flex items-center rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                      href={`${BROWSER_API_BASE_URL}/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
+                      href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
                       target="_blank"
                     >
                       <FileText className="mr-3 h-4 w-4 flex-shrink-0 text-gray-400" />

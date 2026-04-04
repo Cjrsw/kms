@@ -3,6 +3,7 @@ import { FileText, Send } from "lucide-react";
 
 import { AppShell } from "../../components/app-shell";
 import { getQaAnswer, getRepositories } from "../../lib/api";
+import { requireCurrentUser } from "../../lib/auth";
 
 type QaPageProps = {
   searchParams?: Promise<{
@@ -20,7 +21,8 @@ export default async function QaPage({ searchParams }: QaPageProps) {
   const query = resolvedSearchParams?.q?.trim() ?? "";
   const repositorySlug = resolvedSearchParams?.repository_slug?.trim() ?? "";
 
-  const [repositories, qaResult] = await Promise.all([
+  const [currentUser, repositories, qaResult] = await Promise.all([
+    requireCurrentUser(),
     getRepositories(),
     query ? getQaAnswer(query, repositorySlug || undefined) : Promise.resolve(null)
   ]);
@@ -28,6 +30,7 @@ export default async function QaPage({ searchParams }: QaPageProps) {
   return (
     <AppShell
       contentClassName=""
+      currentUser={currentUser}
       title="知识问答"
       description="问答页现在会先按权限过滤，再从 Elasticsearch 检索可见笔记，最后输出可追溯的答案和来源。"
     >

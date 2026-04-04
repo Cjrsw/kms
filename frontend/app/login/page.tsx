@@ -1,6 +1,34 @@
 import { Lock, ShieldAlert, User } from "lucide-react";
+import { redirect } from "next/navigation";
 
-export default function LoginPage() {
+import { getCurrentUser } from "../../lib/auth";
+import { loginAction } from "./actions";
+
+type LoginPageProps = {
+  searchParams?: Promise<{ error?: string }>;
+};
+
+function getErrorMessage(error?: string) {
+  if (error === "required") {
+    return "请输入账号和密码后再登录。";
+  }
+
+  if (error === "invalid") {
+    return "账号或密码错误，请重试。";
+  }
+
+  return "";
+}
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const currentUser = await getCurrentUser();
+  if (currentUser) {
+    redirect("/repositories");
+  }
+
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const errorMessage = getErrorMessage(resolvedSearchParams?.error);
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#F5F7FA] px-4 font-sans">
       <div className="w-full max-w-[400px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
@@ -13,12 +41,19 @@ export default function LoginPage() {
         </div>
 
         <div className="p-8">
-          <div className="mb-5 flex items-center rounded-lg bg-amber-50 p-3 text-sm text-amber-700">
-            <ShieldAlert className="mr-2 h-4 w-4 flex-shrink-0" />
-            当前登录页仅保留原型样式，下一轮接入真实前端登录态。
-          </div>
+          {errorMessage ? (
+            <div className="mb-5 flex items-center rounded-lg bg-red-50 p-3 text-sm text-red-700">
+              <ShieldAlert className="mr-2 h-4 w-4 flex-shrink-0" />
+              {errorMessage}
+            </div>
+          ) : (
+            <div className="mb-5 flex items-center rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
+              <ShieldAlert className="mr-2 h-4 w-4 flex-shrink-0" />
+              现在会使用真实后端账号登录，并建立前端会话。
+            </div>
+          )}
 
-          <div className="space-y-5">
+          <form action={loginAction} className="space-y-5">
             <div>
               <label className="mb-2 block text-sm font-semibold text-gray-700">账号</label>
               <div className="relative">
@@ -26,9 +61,9 @@ export default function LoginPage() {
                   <User className="h-4.5 w-4.5 text-gray-400" />
                 </div>
                 <input
-                  disabled
                   className="block w-full rounded-xl border border-gray-300 bg-gray-50 py-3 pl-10 pr-3 text-sm text-gray-500 outline-none transition-all"
-                  placeholder="前端登录表单待接入"
+                  name="username"
+                  placeholder="请输入登录账号"
                   type="text"
                 />
               </div>
@@ -41,9 +76,9 @@ export default function LoginPage() {
                   <Lock className="h-4.5 w-4.5 text-gray-400" />
                 </div>
                 <input
-                  disabled
                   className="block w-full rounded-xl border border-gray-300 bg-gray-50 py-3 pl-10 pr-3 text-sm text-gray-500 outline-none transition-all"
-                  placeholder="当前由开发种子账号自动联调"
+                  name="password"
+                  placeholder="请输入登录密码"
                   type="password"
                 />
               </div>
@@ -51,11 +86,11 @@ export default function LoginPage() {
 
             <button
               className="w-full rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
-              type="button"
+              type="submit"
             >
-              登录接口待接入
+              登录系统
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </main>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Clock } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
 import { getRepositories } from "../../lib/api";
+import { requireCurrentUser } from "../../lib/auth";
 
 const headerColors: Record<string, string> = {
   hr: "bg-blue-800",
@@ -25,10 +26,11 @@ const recentItemsByRepo: Record<string, Array<{ title: string; time: string }>> 
 };
 
 export default async function RepositoriesPage() {
-  const repositories = await getRepositories();
+  const [currentUser, repositories] = await Promise.all([requireCurrentUser(), getRepositories()]);
 
   return (
     <AppShell
+      currentUser={currentUser}
       title="知识仓库"
       description="沿用原型里的白底卡片加彩色头图布局，当前仓库列表已经改为由 FastAPI 实时提供数据。"
     >

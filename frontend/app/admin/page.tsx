@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { BookOpen, FilePenLine, FolderOpen, Layers3, ShieldCheck, Trash2 } from "lucide-react";
+import { BookOpen, FilePenLine, FolderOpen, Layers3, Trash2 } from "lucide-react";
+import { redirect } from "next/navigation";
 
 import { AppShell } from "../../components/app-shell";
 import { getAdminContent } from "../../lib/api";
+import { hasAnyRole, requireCurrentUser } from "../../lib/auth";
 import {
   createFolderAction,
   createNoteAction,
@@ -19,11 +21,17 @@ import {
 const levelOptions = [1, 2, 3, 4];
 
 export default async function AdminPage() {
+  const currentUser = await requireCurrentUser();
+  if (!hasAnyRole(currentUser, ["platform_admin", "repo_admin"])) {
+    redirect("/repositories");
+  }
+
   const adminContent = await getAdminContent();
 
   return (
     <AppShell
       contentClassName="p-8"
+      currentUser={currentUser}
       title="后台系统"
       description="后台页现在已经接入真实的仓库、目录、笔记管理能力，管理员可以直接在这里创建、编辑和删除内容。"
     >

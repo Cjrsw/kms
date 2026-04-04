@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronLeft, Edit3, FileText, FolderOpen, Sparkles } from "l
 import { notFound } from "next/navigation";
 import { AppShell } from "../../../components/app-shell";
 import { getRepository } from "../../../lib/api";
+import { requireCurrentUser } from "../../../lib/auth";
 
 type RepositoryDetailPageProps = {
   params: Promise<{ repoId: string }>;
@@ -10,6 +11,7 @@ type RepositoryDetailPageProps = {
 
 export default async function RepositoryDetailPage({ params }: RepositoryDetailPageProps) {
   const { repoId } = await params;
+  const currentUser = await requireCurrentUser();
 
   let repo: Awaited<ReturnType<typeof getRepository>> | null = null;
   try {
@@ -25,6 +27,7 @@ export default async function RepositoryDetailPage({ params }: RepositoryDetailP
   return (
     <AppShell
       contentClassName=""
+      currentUser={currentUser}
       title={repo.name}
       description="仓库详情沿用原型里的左树右文结构，后续搜索和问答的来源跳转会直接落到右侧笔记详情页。"
     >

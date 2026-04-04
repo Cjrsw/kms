@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileText, Filter, Search, User } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
 import { getSearchResults } from "../../lib/api";
+import { requireCurrentUser } from "../../lib/auth";
 
 const mockAuthors = ["张三（HR）", "李四（财务）", "曹操（研发部）", "曹丕（市场部）"];
 
@@ -12,11 +13,15 @@ type SearchPageProps = {
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const { q = "" } = await searchParams;
   const normalizedQuery = q.trim();
-  const results = normalizedQuery ? await getSearchResults(normalizedQuery) : [];
+  const [currentUser, results] = await Promise.all([
+    requireCurrentUser(),
+    normalizedQuery ? getSearchResults(normalizedQuery) : Promise.resolve([])
+  ]);
 
   return (
     <AppShell
       contentClassName=""
+      currentUser={currentUser}
       title="全文检索"
       description="这一页沿用原型里的顶部检索框加左侧筛选栏布局，后续会把这些条件映射到 Elasticsearch 查询。"
     >
