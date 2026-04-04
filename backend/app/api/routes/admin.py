@@ -8,20 +8,25 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import require_role
+from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.content import Folder, Note, Repository
-from app.models.user import User
+from app.models.user import Role, User, UserRole
 from app.schemas.admin import (
     AdminContentResponse,
     AdminFolderItem,
     AdminNoteItem,
+    AdminRoleItem,
     AdminRepositoryItem,
+    AdminUserItem,
     FolderCreateRequest,
     FolderUpdateRequest,
     NoteCreateRequest,
     NoteUpdateRequest,
     RepositoryCreateRequest,
     RepositoryUpdateRequest,
+    UserCreateRequest,
+    UserUpdateRequest,
 )
 from app.services.search import delete_note_document, index_note, rebuild_notes_index
 
@@ -35,6 +40,13 @@ def get_admin_content(
     _: Annotated[User, ADMIN_DEPENDENCY],
     db: Annotated[Session, Depends(get_db)],
 ) -> AdminContentResponse:
+    users = (
+        db.query(User)
+        .options(selectinload(User.roles).selectinload(UserRole.role))
+        .order_by(User.id.asc())
+        .all()
+    )
+    roles = db.query(Role).order_by(Role.id.asc()).all()
     repositories = (
         db.query(Repository)
         .options(
@@ -83,9 +95,12 @@ def get_admin_content(
     ]
 
     return AdminContentResponse(
+        user_count=len(users),
         repository_count=len(serialized_repositories),
         folder_count=sum(len(repository.folders) for repository in repositories),
         note_count=sum(len(repository.notes) for repository in repositories),
+        users=[_serialize_user(user) for user in users],
+        available_roles=[AdminRoleItem(code=role.code, name=role.name) for role in roles],
         repositories=serialized_repositories,
     )
 
@@ -291,6 +306,72 @@ def delete_note(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/users", response_model=AdminUserItem, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: UserCreateRequest,
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminUserItem:
+    _ensure_unique_user_fields(db, username=payload.username, email=payload.email)
+    _ensure_role_codes_exist(db, payload.role_codes)
+    user = User(
+        username=payload.username.strip(),
+        full_name=payload.full_name.strip(),
+        email=payload.email.strip().lower(),
+        hashed_password=get_password_hash(payload.password),
+        clearance_level=payload.clearance_level,
+        is_active=payload.is_active,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _sync_user_roles(db, user, payload.role_codes)
+    return _load_user_item(db, user.id)
+
+
+@router.put("/users/{user_id}", response_model=AdminUserItem)
+def update_user(
+    user_id: int,
+    payload: UserUpdateRequest,
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminUserItem:
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    _ensure_unique_user_fields(db, username=user.username, email=payload.email, exclude_user_id=user.id)
+    _ensure_role_codes_exist(db, payload.role_codes)
+    user.full_name = payload.full_name.strip()
+    user.email = payload.email.strip().lower()
+    user.clearance_level = payload.clearance_level
+    user.is_active = payload.is_active
+    if payload.password and payload.password.strip():
+        user.hashed_password = get_password_hash(payload.password.strip())
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _sync_user_roles(db, user, payload.role_codes)
+    return _load_user_item(db, user.id)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    current_user: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current admin user cannot be deleted.")
+
+    db.delete(user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 def _normalize_slug(raw_slug: str) -> str:
     normalized = SLUG_RE.sub("-", raw_slug.strip().lower()).strip("-")
     if not normalized:
@@ -421,3 +502,71 @@ def _load_note_item(db: Session, note_id: int) -> AdminNoteItem:
         updated_at=note.updated_at.isoformat(),
         attachment_count=len(note.attachments),
     )
+
+
+def _serialize_user(user: User) -> AdminUserItem:
+    return AdminUserItem(
+        id=user.id,
+        username=user.username,
+        full_name=user.full_name,
+        email=user.email,
+        clearance_level=user.clearance_level,
+        is_active=user.is_active,
+        role_codes=sorted(user_role.role.code for user_role in user.roles),
+    )
+
+
+def _load_user_item(db: Session, user_id: int) -> AdminUserItem:
+    user = (
+        db.query(User)
+        .options(selectinload(User.roles).selectinload(UserRole.role))
+        .filter(User.id == user_id)
+        .first()
+    )
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return _serialize_user(user)
+
+
+def _ensure_unique_user_fields(
+    db: Session,
+    *,
+    username: str,
+    email: str,
+    exclude_user_id: int | None = None,
+) -> None:
+    normalized_username = username.strip()
+    normalized_email = email.strip().lower()
+
+    username_query = db.query(User).filter(User.username == normalized_username)
+    email_query = db.query(User).filter(User.email == normalized_email)
+    if exclude_user_id is not None:
+        username_query = username_query.filter(User.id != exclude_user_id)
+        email_query = email_query.filter(User.id != exclude_user_id)
+
+    if username_query.first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists.")
+    if email_query.first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists.")
+
+
+def _sync_user_roles(db: Session, user: User, role_codes: list[str]) -> None:
+    normalized_role_codes = sorted({role_code.strip() for role_code in role_codes if role_code.strip()})
+    roles = db.query(Role).filter(Role.code.in_(normalized_role_codes)).all() if normalized_role_codes else []
+    db.query(UserRole).filter(UserRole.user_id == user.id).delete()
+    for role in roles:
+        db.add(UserRole(user_id=user.id, role_id=role.id))
+    db.commit()
+
+
+def _ensure_role_codes_exist(db: Session, role_codes: list[str]) -> None:
+    normalized_role_codes = sorted({role_code.strip() for role_code in role_codes if role_code.strip()})
+    if not normalized_role_codes:
+        return
+
+    roles = db.query(Role).filter(Role.code.in_(normalized_role_codes)).all()
+    found_codes = {role.code for role in roles}
+    missing_codes = set(normalized_role_codes) - found_codes
+    if missing_codes:
+        missing_code = sorted(missing_codes)[0]
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown role code: {missing_code}")

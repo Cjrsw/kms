@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 
-export default function HomePage() {
-  redirect("/repositories");
+import { getCurrentUser } from "../lib/auth";
+
+export default async function HomePage() {
+  const currentUser = await getCurrentUser();
+  redirect(currentUser ? "/repositories" : "/login");
 }

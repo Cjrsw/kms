@@ -3,6 +3,7 @@ import { FileText, Send } from "lucide-react";
 
 import { AppShell } from "../../components/app-shell";
 import { getQaAnswer, getRepositories } from "../../lib/api";
+import { requireCurrentUser } from "../../lib/auth";
 
 type QaPageProps = {
   searchParams?: Promise<{
@@ -11,8 +12,34 @@ type QaPageProps = {
   }>;
 };
 
+type QaMode = "empty" | "no_results" | "fallback" | "llm";
+
 function toPlainText(snippet: string): string {
   return snippet.replace(/<[^>]+>/g, "").trim();
+}
+
+function getModeMeta(mode?: QaMode, model?: string | null) {
+  if (mode === "llm") {
+    return {
+      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      badgeLabel: "LLM 生成",
+      helperText: `当前由 ${model ?? "Gemini"} 基于权限内资料生成答案`
+    };
+  }
+
+  if (mode === "fallback") {
+    return {
+      badgeClassName: "border-amber-200 bg-amber-50 text-amber-700",
+      badgeLabel: "检索回退",
+      helperText: "Gemini 未配置或调用失败，当前展示检索式整理回答"
+    };
+  }
+
+  return {
+    badgeClassName: "border-slate-200 bg-slate-50 text-slate-600",
+    badgeLabel: "权限检索",
+    helperText: "系统会先按权限过滤知识，再给出可追溯答案"
+  };
 }
 
 export default async function QaPage({ searchParams }: QaPageProps) {
@@ -20,16 +47,19 @@ export default async function QaPage({ searchParams }: QaPageProps) {
   const query = resolvedSearchParams?.q?.trim() ?? "";
   const repositorySlug = resolvedSearchParams?.repository_slug?.trim() ?? "";
 
-  const [repositories, qaResult] = await Promise.all([
+  const [currentUser, repositories, qaResult] = await Promise.all([
+    requireCurrentUser(),
     getRepositories(),
     query ? getQaAnswer(query, repositorySlug || undefined) : Promise.resolve(null)
   ]);
+  const modeMeta = getModeMeta(qaResult?.mode, qaResult?.model);
 
   return (
     <AppShell
       contentClassName=""
+      currentUser={currentUser}
       title="知识问答"
-      description="问答页现在会先按权限过滤，再从 Elasticsearch 检索可见笔记，最后输出可追溯的答案和来源。"
+      description="问答会先按权限过滤检索，再尝试由 Gemini 基于可见资料生成答案；未配置密钥或调用异常时会自动回退为检索式回答。"
     >
       <div className="flex min-h-full flex-1 flex-col overflow-hidden bg-white">
         <div className="flex h-14 flex-shrink-0 items-center justify-between border-b border-gray-200 bg-gray-50 px-6 shadow-sm">
@@ -57,7 +87,7 @@ export default async function QaPage({ searchParams }: QaPageProps) {
               </button>
             </form>
           </div>
-          <p className="text-xs text-gray-400">当前为检索式问答，答案后附原文来源。</p>
+          <p className="text-xs text-gray-400">{modeMeta.helperText}</p>
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -69,7 +99,7 @@ export default async function QaPage({ searchParams }: QaPageProps) {
                 </div>
                 <div className="rounded-2xl rounded-tl-sm border border-gray-100 bg-gray-50 p-4 text-gray-800">
                   <p className="whitespace-pre-line leading-relaxed">
-                    你好，我会先在你当前权限可见的知识里检索，再给出可追溯的回答。如果没有命中，我会明确告诉你没有找到。
+                    你好，我会先在你当前权限可见的知识里检索，再尝试生成可追溯的回答。如果没有命中，我会明确告诉你没找到。
                   </p>
                 </div>
               </div>
@@ -89,6 +119,16 @@ export default async function QaPage({ searchParams }: QaPageProps) {
                       <span className="text-sm font-bold text-blue-600">AI</span>
                     </div>
                     <div className="rounded-2xl rounded-tl-sm border border-gray-100 bg-gray-50 p-4 text-gray-800">
+                      <div className="mb-3 flex items-center gap-2 text-xs">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 font-semibold ${modeMeta.badgeClassName}`}
+                        >
+                          {modeMeta.badgeLabel}
+                        </span>
+                        {qaResult?.source_count ? (
+                          <span className="text-gray-500">基于 {qaResult.source_count} 条权限内来源生成</span>
+                        ) : null}
+                      </div>
                       <p className="whitespace-pre-line leading-relaxed">
                         {qaResult?.answer ?? "问答结果暂时不可用。"}
                       </p>
@@ -126,7 +166,7 @@ export default async function QaPage({ searchParams }: QaPageProps) {
               <div className="rounded-3xl border border-dashed border-blue-200 bg-blue-50/60 p-6 text-sm text-gray-600">
                 <p className="font-medium text-gray-800">可以先试这些问题：</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {["考勤制度是什么", "入转调离流程怎么走", "招聘规范有哪些要求"].map((suggestion) => (
+                  {["考勤制度是什么？", "入转调离流程怎么走？", "招聘规范有哪些要求？"].map((suggestion) => (
                     <Link
                       key={suggestion}
                       className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-sm text-blue-600 transition-colors hover:border-blue-400 hover:bg-blue-100"

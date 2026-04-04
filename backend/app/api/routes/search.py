@@ -18,5 +18,14 @@ def search(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     repository_slug: Annotated[str | None, Query()] = None,
+    file_type: Annotated[str | None, Query()] = None,
+    updated_within: Annotated[str | None, Query()] = None,
 ) -> list[SearchResultItem]:
-    return search_notes(db=db, user=user, query=q, repository_slug=repository_slug)
+    return search_notes(
+        db=db,
+        user=user,
+        query=q,
+        repository_slug=repository_slug,
+        file_type=file_type,
+        updated_within=updated_within,
+    )

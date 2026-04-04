@@ -6,11 +6,13 @@ import { clsx } from "clsx";
 import { Bell, Database, Info, LayoutDashboard, LogOut, Menu, MessageSquare, Search, Settings, User } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import type { AuthUser } from "../lib/auth";
+
 const navigationItems = [
   { href: "/repositories", label: "知识仓库", matchers: ["/repositories"], icon: Database },
-  { href: "/search", label: "全文检索", matchers: ["/search"], icon: Search },
+  { href: "/search", label: "全文搜索", matchers: ["/search"], icon: Search },
   { href: "/qa", label: "知识问答", matchers: ["/qa"], icon: MessageSquare },
-  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard }
+  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard, requiredRoles: ["platform_admin", "repo_admin"] }
 ];
 
 type AppShellProps = {
@@ -18,15 +20,23 @@ type AppShellProps = {
   description: string;
   children: ReactNode;
   contentClassName?: string;
+  currentUser: AuthUser;
 };
 
 function isActive(pathname: string, matchers: string[]) {
   return matchers.some((matcher) => pathname === matcher || pathname.startsWith(`${matcher}/`));
 }
 
-export function AppShell({ title, description, children, contentClassName }: AppShellProps) {
+export function AppShell({ title, description, children, contentClassName, currentUser }: AppShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const visibleNavigationItems = navigationItems.filter((item) => {
+    if (!item.requiredRoles) {
+      return true;
+    }
+
+    return item.requiredRoles.some((roleCode) => currentUser.role_codes.includes(roleCode));
+  });
 
   return (
     <div className="flex h-screen bg-[#F5F7FA] font-sans text-gray-800">
@@ -65,7 +75,7 @@ export function AppShell({ title, description, children, contentClassName }: App
           </div>
 
           <nav className="space-y-2 px-3">
-            {navigationItems.map((item) => {
+            {visibleNavigationItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(pathname, item.matchers);
 
@@ -128,11 +138,12 @@ export function AppShell({ title, description, children, contentClassName }: App
                   collapsed ? "" : "mr-3"
                 )}
               >
-                管
+                {currentUser.full_name.slice(0, 1)}
               </div>
               {!collapsed && (
                 <div className="flex-1 overflow-hidden">
-                  <p className="truncate text-sm font-medium text-gray-800">平台管理员</p>
+                  <p className="truncate text-sm font-medium text-gray-800">{currentUser.full_name}</p>
+                  <p className="truncate text-xs text-gray-500">{currentUser.username}</p>
                 </div>
               )}
             </div>
@@ -144,17 +155,20 @@ export function AppShell({ title, description, children, contentClassName }: App
               )}
             >
               <div className="border-b border-gray-100 p-4">
-                <p className="text-sm font-bold text-gray-800">平台管理员</p>
-                <p className="truncate text-xs text-gray-500">admin@example.com</p>
+                <p className="text-sm font-bold text-gray-800">{currentUser.full_name}</p>
+                <p className="truncate text-xs text-gray-500">{currentUser.email}</p>
               </div>
               <div className="space-y-1 p-2">
                 <MenuButton icon={<User className="h-4 w-4" />} label="个人中心" />
-                <MenuButton icon={<Settings className="h-4 w-4" />} label="后台系统" href="/admin" />
-                <MenuButton icon={<Info className="h-4 w-4" />} label="关于系统" />
+                {currentUser.role_codes.some((roleCode) => ["platform_admin", "repo_admin"].includes(roleCode)) ? (
+                  <MenuButton icon={<Settings className="h-4 w-4" />} label="后台系统" href="/admin" />
+                ) : null}
+                <MenuButton icon={<Info className="h-4 w-4" />} label={`密级 L${currentUser.clearance_level}`} />
               </div>
               <div className="border-t border-gray-100 p-2">
                 <MenuButton
                   className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                  href="/logout"
                   icon={<LogOut className="h-4 w-4" />}
                   label="退出登录"
                 />

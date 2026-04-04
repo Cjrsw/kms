@@ -1,10 +1,9 @@
-const API_BASE_URL =
-  process.env.KMS_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:8000/api/v1";
-export const BROWSER_API_BASE_URL = process.env.NEXT_PUBLIC_BROWSER_API_BASE_URL ?? "http://localhost:8000/api/v1";
-const DEV_USERNAME = process.env.KMS_DEV_BOOTSTRAP_USERNAME ?? "admin";
-const DEV_PASSWORD = process.env.KMS_DEV_BOOTSTRAP_PASSWORD ?? "123456";
+import "server-only";
+
+import { redirect } from "next/navigation";
+
+import { getSessionToken } from "./auth";
+import { API_BASE_URL } from "./config";
 
 export type AttachmentItem = {
   id: number;
@@ -69,6 +68,12 @@ export type SearchResultItem = {
   updated_at: string;
 };
 
+export type SearchFilters = {
+  repositorySlug?: string;
+  fileType?: string;
+  updatedWithin?: string;
+};
+
 export type QaSourceItem = {
   note_id: number;
   repository_slug: string;
@@ -85,6 +90,8 @@ export type QaAnswer = {
   answer: string;
   source_count: number;
   sources: QaSourceItem[];
+  mode: "empty" | "no_results" | "fallback" | "llm";
+  model: string | null;
 };
 
 export type AdminFolderItem = {
@@ -107,6 +114,21 @@ export type AdminNoteItem = {
   attachment_count: number;
 };
 
+export type AdminRoleItem = {
+  code: string;
+  name: string;
+};
+
+export type AdminUserItem = {
+  id: number;
+  username: string;
+  full_name: string;
+  email: string;
+  clearance_level: number;
+  is_active: boolean;
+  role_codes: string[];
+};
+
 export type AdminRepositoryItem = {
   id: number;
   slug: string;
@@ -120,41 +142,36 @@ export type AdminRepositoryItem = {
 };
 
 export type AdminContent = {
+  user_count: number;
   repository_count: number;
   folder_count: number;
   note_count: number;
+  users: AdminUserItem[];
+  available_roles: AdminRoleItem[];
   repositories: AdminRepositoryItem[];
 };
 
-export async function getBootstrapToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      username: DEV_USERNAME,
-      password: DEV_PASSWORD
-    }),
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error("Unable to bootstrap auth token.");
+async function getRequiredAccessToken(): Promise<string> {
+  const token = await getSessionToken();
+  if (!token) {
+    redirect("/login");
   }
 
-  const data = (await response.json()) as { access_token: string };
-  return data.access_token;
+  return token;
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`
     },
     cache: "no-store"
   });
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: ${path}`);
@@ -164,7 +181,7 @@ async function apiFetch<T>(path: string): Promise<T> {
 }
 
 async function apiJsonRequest<T>(path: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<T> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: {
@@ -174,6 +191,10 @@ async function apiJsonRequest<T>(path: string, method: "POST" | "PUT" | "DELETE"
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store"
   });
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: ${method} ${path}`);
@@ -203,22 +224,7 @@ export async function updateNote(
   noteId: string,
   payload: { title: string; content_text: string; content_json?: string }
 ): Promise<NoteDetail> {
-  const token = await getBootstrapToken();
-  const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/notes/${noteId}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify(payload),
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}`);
-  }
-
-  return (await response.json()) as NoteDetail;
+  return apiJsonRequest<NoteDetail>(`/repositories/${repositorySlug}/notes/${noteId}`, "PUT", payload);
 }
 
 export async function uploadNoteAttachment(
@@ -226,7 +232,7 @@ export async function uploadNoteAttachment(
   noteId: string,
   file: File
 ): Promise<AttachmentItem> {
-  const token = await getBootstrapToken();
+  const token = await getRequiredAccessToken();
   const formData = new FormData();
   formData.set("file", file);
 
@@ -239,6 +245,10 @@ export async function uploadNoteAttachment(
     cache: "no-store"
   });
 
+  if (response.status === 401) {
+    redirect("/login");
+  }
+
   if (!response.ok) {
     throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}/attachments`);
   }
@@ -246,8 +256,58 @@ export async function uploadNoteAttachment(
   return (await response.json()) as AttachmentItem;
 }
 
-export async function getSearchResults(query: string): Promise<SearchResultItem[]> {
+export async function replaceNoteAttachment(
+  repositorySlug: string,
+  noteId: string,
+  attachmentId: string,
+  file: File
+): Promise<AttachmentItem> {
+  const token = await getRequiredAccessToken();
+  const formData = new FormData();
+  formData.set("file", file);
+
+  const response = await fetch(
+    `${API_BASE_URL}/repositories/${repositorySlug}/notes/${noteId}/attachments/${attachmentId}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      body: formData,
+      cache: "no-store"
+    }
+  );
+
+  if (response.status === 401) {
+    redirect("/login");
+  }
+
+  if (!response.ok) {
+    throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}/attachments/${attachmentId}`);
+  }
+
+  return (await response.json()) as AttachmentItem;
+}
+
+export async function deleteNoteAttachment(
+  repositorySlug: string,
+  noteId: string,
+  attachmentId: string
+): Promise<void> {
+  await apiJsonRequest<void>(`/repositories/${repositorySlug}/notes/${noteId}/attachments/${attachmentId}`, "DELETE");
+}
+
+export async function getSearchResults(query: string, filters: SearchFilters = {}): Promise<SearchResultItem[]> {
   const searchParams = new URLSearchParams({ q: query });
+  if (filters.repositorySlug) {
+    searchParams.set("repository_slug", filters.repositorySlug);
+  }
+  if (filters.fileType) {
+    searchParams.set("file_type", filters.fileType);
+  }
+  if (filters.updatedWithin) {
+    searchParams.set("updated_within", filters.updatedWithin);
+  }
   return apiFetch<SearchResultItem[]>(`/search?${searchParams.toString()}`);
 }
 
@@ -336,4 +396,34 @@ export async function updateNoteAdmin(
 
 export async function deleteNoteAdmin(noteId: string): Promise<void> {
   await apiJsonRequest<void>(`/admin/notes/${noteId}`, "DELETE");
+}
+
+export async function createUserAdmin(payload: {
+  username: string;
+  full_name: string;
+  email: string;
+  password: string;
+  clearance_level: number;
+  is_active: boolean;
+  role_codes: string[];
+}): Promise<AdminUserItem> {
+  return apiJsonRequest<AdminUserItem>("/admin/users", "POST", payload);
+}
+
+export async function updateUserAdmin(
+  userId: string,
+  payload: {
+    full_name: string;
+    email: string;
+    password?: string;
+    clearance_level: number;
+    is_active: boolean;
+    role_codes: string[];
+  }
+): Promise<AdminUserItem> {
+  return apiJsonRequest<AdminUserItem>(`/admin/users/${userId}`, "PUT", payload);
+}
+
+export async function deleteUserAdmin(userId: string): Promise<void> {
+  await apiJsonRequest<void>(`/admin/users/${userId}`, "DELETE");
 }

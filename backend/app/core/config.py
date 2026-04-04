@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
 
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+    gemini_api_base_url: str = Field(
+        default="https://generativelanguage.googleapis.com/v1beta",
+        alias="GEMINI_API_BASE_URL",
+    )
+    gemini_timeout_seconds: float = Field(default=30.0, alias="GEMINI_TIMEOUT_SECONDS")
 
     @property
     def sqlalchemy_database_uri(self) -> str:

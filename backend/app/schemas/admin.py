@@ -1,6 +1,21 @@
 from pydantic import BaseModel, Field
 
 
+class AdminRoleItem(BaseModel):
+    code: str
+    name: str
+
+
+class AdminUserItem(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    email: str
+    clearance_level: int
+    is_active: bool
+    role_codes: list[str]
+
+
 class AdminNoteItem(BaseModel):
     id: int
     repository_id: int
@@ -34,9 +49,12 @@ class AdminRepositoryItem(BaseModel):
 
 
 class AdminContentResponse(BaseModel):
+    user_count: int
     repository_count: int
     folder_count: int
     note_count: int
+    users: list[AdminUserItem]
+    available_roles: list[AdminRoleItem]
     repositories: list[AdminRepositoryItem]
 
 
@@ -82,3 +100,22 @@ class NoteUpdateRequest(BaseModel):
     content_text: str
     content_json: str | None = None
     min_clearance_level: int = Field(default=1, ge=1, le=4)
+
+
+class UserCreateRequest(BaseModel):
+    username: str
+    full_name: str
+    email: str
+    password: str = Field(min_length=6)
+    clearance_level: int = Field(default=1, ge=1, le=4)
+    is_active: bool = True
+    role_codes: list[str] = Field(default_factory=list)
+
+
+class UserUpdateRequest(BaseModel):
+    full_name: str
+    email: str
+    password: str | None = Field(default=None, min_length=6)
+    clearance_level: int = Field(default=1, ge=1, le=4)
+    is_active: bool = True
+    role_codes: list[str] = Field(default_factory=list)

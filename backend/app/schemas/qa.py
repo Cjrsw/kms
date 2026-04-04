@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -17,3 +19,5 @@ class QaAnswerResponse(BaseModel):
     answer: str
     source_count: int
     sources: list[QaSourceItem]
+    mode: Literal["empty", "no_results", "fallback", "llm"]
+    model: str | None = None

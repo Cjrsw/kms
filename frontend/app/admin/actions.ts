@@ -7,12 +7,15 @@ import {
   createFolderAdmin,
   createNoteAdmin,
   createRepository,
+  createUserAdmin,
   deleteFolderAdmin,
   deleteNoteAdmin,
   deleteRepositoryAdmin,
+  deleteUserAdmin,
   updateFolderAdmin,
   updateNoteAdmin,
-  updateRepositoryAdmin
+  updateRepositoryAdmin,
+  updateUserAdmin
 } from "../../lib/api";
 
 function parseRequiredString(formData: FormData, key: string): string {
@@ -38,6 +41,17 @@ function parseOptionalNumber(formData: FormData, key: string): number | null {
     throw new Error(`${key} is invalid.`);
   }
   return value;
+}
+
+function parseBoolean(formData: FormData, key: string): boolean {
+  return String(formData.get(key) ?? "").trim() === "true";
+}
+
+function parseStringList(formData: FormData, key: string): string[] {
+  return formData
+    .getAll(key)
+    .map((item) => String(item).trim())
+    .filter(Boolean);
 }
 
 function finishAdminMutation() {
@@ -126,5 +140,39 @@ export async function updateNoteAction(formData: FormData) {
 
 export async function deleteNoteAction(formData: FormData) {
   await deleteNoteAdmin(String(formData.get("note_id")));
+  finishAdminMutation();
+}
+
+export async function createUserAction(formData: FormData) {
+  await createUserAdmin({
+    username: parseRequiredString(formData, "username"),
+    full_name: parseRequiredString(formData, "full_name"),
+    email: parseRequiredString(formData, "email"),
+    password: parseRequiredString(formData, "password"),
+    clearance_level: parseRequiredNumber(formData, "clearance_level"),
+    is_active: parseBoolean(formData, "is_active"),
+    role_codes: parseStringList(formData, "role_codes")
+  });
+
+  finishAdminMutation();
+}
+
+export async function updateUserAction(formData: FormData) {
+  const password = parseRequiredString(formData, "password");
+
+  await updateUserAdmin(String(formData.get("user_id")), {
+    full_name: parseRequiredString(formData, "full_name"),
+    email: parseRequiredString(formData, "email"),
+    password: password || undefined,
+    clearance_level: parseRequiredNumber(formData, "clearance_level"),
+    is_active: parseBoolean(formData, "is_active"),
+    role_codes: parseStringList(formData, "role_codes")
+  });
+
+  finishAdminMutation();
+}
+
+export async function deleteUserAction(formData: FormData) {
+  await deleteUserAdmin(String(formData.get("user_id")));
   finishAdminMutation();
 }

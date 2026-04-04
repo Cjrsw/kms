@@ -7,9 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import app.models  # noqa: F401
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.db.base import Base
 from app.db.init_db import seed_database
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal
 from app.services.search import sync_all_notes
 from app.services.storage import ensure_bucket_exists
 
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         seed_database(db)
