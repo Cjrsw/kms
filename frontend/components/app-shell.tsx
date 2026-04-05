@@ -218,7 +218,7 @@ function MenuButton({ icon, label, href, className }: MenuButtonProps) {
   );
 
   if (href) {
-    return <Link href={href}>{content}</Link>;
+    return <a href={href}>{content}</a>;
   }
 
   return <button type="button">{content}</button>;
