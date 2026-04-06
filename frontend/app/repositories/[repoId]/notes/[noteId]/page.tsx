@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { FileText, Sparkles } from "lucide-react";
+import { generateHTML } from "@tiptap/html";
+import StarterKit from "@tiptap/starter-kit";
 import { notFound } from "next/navigation";
 import { AppShell } from "../../../../../components/app-shell";
 import { getNote, getRepository } from "../../../../../lib/api";
@@ -101,27 +103,49 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
               </div>
             </div>
 
-            <article className="whitespace-pre-wrap text-[15px] leading-8 text-gray-700">{note.content_text}</article>
+            <article className="prose max-w-none text-[15px] leading-8 text-gray-800 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: generateHTML(JSON.parse(note.content_json || "{}"), [StarterKit]),
+                }}
+              />
+            </article>
 
             <div className="mt-10 border-t border-gray-100 pt-6">
               <h3 className="mb-4 text-sm font-bold text-gray-800">笔记附件</h3>
               {note.attachments.length > 0 ? (
                 <div className="grid gap-3 md:grid-cols-2">
                   {note.attachments.map((attachment) => (
-                    <a
+                    <div
                       key={attachment.id}
-                      className="flex items-center rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                      href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
-                      target="_blank"
+                      className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700"
                     >
-                      <FileText className="mr-3 h-4 w-4 flex-shrink-0 text-gray-400" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-gray-700">{attachment.file_name}</p>
-                        <p className="text-xs text-gray-400">
-                          {attachment.file_type.toUpperCase()} · {(attachment.file_size / 1024).toFixed(1)} KB
-                        </p>
+                      <div className="flex min-w-0 flex-1 items-center">
+                        <FileText className="mr-3 h-4 w-4 flex-shrink-0 text-gray-400" />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-gray-800">{attachment.file_name}</p>
+                          <p className="text-xs text-gray-400">
+                            {attachment.file_type.toUpperCase()} · {(attachment.file_size / 1024).toFixed(1)} KB
+                          </p>
+                        </div>
                       </div>
-                    </a>
+                      <div className="flex flex-shrink-0 gap-2 text-xs">
+                        <a
+                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/preview`}
+                          target="_blank"
+                        >
+                          预览
+                        </a>
+                        <a
+                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
+                          target="_blank"
+                        >
+                          下载
+                        </a>
+                      </div>
+                    </div>
                   ))}
                 </div>
               ) : (

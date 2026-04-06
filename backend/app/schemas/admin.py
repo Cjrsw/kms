@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import List
 
 
 class AdminNoteItem(BaseModel):
@@ -38,6 +39,50 @@ class AdminContentResponse(BaseModel):
     folder_count: int
     note_count: int
     repositories: list[AdminRepositoryItem]
+
+
+class AdminUserItem(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    email: str
+    clearance_level: int
+    is_active: bool
+    role_codes: List[str]
+
+
+class AdminUsersResponse(BaseModel):
+    total: int
+    users: list[AdminUserItem]
+    roles: list[str]
+
+
+class RolesResponse(BaseModel):
+    roles: list[str]
+
+
+class CorsOriginsResponse(BaseModel):
+    origins: list[str]
+
+
+class CorsOriginsUpdateRequest(BaseModel):
+    origins: list[str]
+
+
+class AuthAuditLogItem(BaseModel):
+    id: int
+    username: str
+    event_type: str
+    status: str
+    ip_address: str
+    user_agent: str
+    detail: str
+    created_at: str
+
+
+class AuthAuditLogResponse(BaseModel):
+    total: int
+    logs: list[AuthAuditLogItem]
 
 
 class RepositoryCreateRequest(BaseModel):
@@ -82,3 +127,22 @@ class NoteUpdateRequest(BaseModel):
     content_text: str
     content_json: str | None = None
     min_clearance_level: int = Field(default=1, ge=1, le=4)
+
+
+class UserCreateRequest(BaseModel):
+    username: str
+    full_name: str
+    email: str
+    password: str
+    clearance_level: int = Field(default=1, ge=1, le=4)
+    is_active: bool = True
+    role_codes: list[str] = []
+
+
+class UserUpdateRequest(BaseModel):
+    full_name: str
+    email: str
+    password: str | None = None
+    clearance_level: int = Field(default=1, ge=1, le=4)
+    is_active: bool = True
+    role_codes: list[str] = []

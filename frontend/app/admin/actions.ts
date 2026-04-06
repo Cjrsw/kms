@@ -7,12 +7,16 @@ import {
   createFolderAdmin,
   createNoteAdmin,
   createRepository,
+  createUserAdmin,
   deleteFolderAdmin,
   deleteNoteAdmin,
   deleteRepositoryAdmin,
+  deleteUserAdmin,
+  updateAdminCorsOrigins,
   updateFolderAdmin,
   updateNoteAdmin,
-  updateRepositoryAdmin
+  updateRepositoryAdmin,
+  updateUserAdmin
 } from "../../lib/api";
 
 function parseRequiredString(formData: FormData, key: string): string {
@@ -46,6 +50,11 @@ function finishAdminMutation() {
   revalidatePath("/search");
   revalidatePath("/qa");
   redirect("/admin");
+}
+
+function parseBoolean(formData: FormData, key: string): boolean {
+  const value = String(formData.get(key) ?? "").trim().toLowerCase();
+  return value === "true" || value === "1" || value === "on";
 }
 
 export async function createRepositoryAction(formData: FormData) {
@@ -126,5 +135,45 @@ export async function updateNoteAction(formData: FormData) {
 
 export async function deleteNoteAction(formData: FormData) {
   await deleteNoteAdmin(String(formData.get("note_id")));
+  finishAdminMutation();
+}
+
+export async function createUserAction(formData: FormData) {
+  await createUserAdmin({
+    username: parseRequiredString(formData, "username"),
+    full_name: parseRequiredString(formData, "full_name"),
+    email: parseRequiredString(formData, "email"),
+    password: parseRequiredString(formData, "password"),
+    clearance_level: parseRequiredNumber(formData, "clearance_level"),
+    is_active: parseBoolean(formData, "is_active"),
+    role_codes: formData.getAll("role_codes").map((value) => String(value))
+  });
+  finishAdminMutation();
+}
+
+export async function updateUserAction(formData: FormData) {
+  await updateUserAdmin(String(formData.get("user_id")), {
+    full_name: parseRequiredString(formData, "full_name"),
+    email: parseRequiredString(formData, "email"),
+    password: (formData.get("password") as string | null) || undefined,
+    clearance_level: parseRequiredNumber(formData, "clearance_level"),
+    is_active: parseBoolean(formData, "is_active"),
+    role_codes: formData.getAll("role_codes").map((value) => String(value))
+  });
+  finishAdminMutation();
+}
+
+export async function deleteUserAction(formData: FormData) {
+  await deleteUserAdmin(String(formData.get("user_id")));
+  finishAdminMutation();
+}
+
+export async function updateCorsOriginsAction(formData: FormData) {
+  const rawValue = parseRequiredString(formData, "origins");
+  const origins = rawValue
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  await updateAdminCorsOrigins(origins);
   finishAdminMutation();
 }

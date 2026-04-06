@@ -1,15 +1,19 @@
 from app.models.content import Attachment, AttachmentContent, Folder, IngestionJob, Note, NoteChunk, Repository
-from app.models.user import Role, User, UserRole
+from app.models.system import SystemSetting
+from app.models.user import AuthAuditLog, RevokedToken, Role, User, UserRole
 
 __all__ = [
     "Attachment",
     "AttachmentContent",
+    "AuthAuditLog",
     "Folder",
     "IngestionJob",
     "Note",
     "NoteChunk",
     "Repository",
+    "RevokedToken",
     "Role",
+    "SystemSetting",
     "User",
     "UserRole",
 ]

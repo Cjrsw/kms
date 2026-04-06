@@ -32,7 +32,15 @@ export async function GET(_: Request, { params }: DownloadRouteProps) {
     }
   );
 
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: "/logout"
+      }
+    });
+  }
+  if (response.status === 403) {
     return new Response(null, {
       status: 307,
       headers: {

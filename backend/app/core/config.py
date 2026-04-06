@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import List
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,8 +14,15 @@ class Settings(BaseSettings):
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
 
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
-    access_token_expire_minutes: int = Field(default=120, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    access_token_expire_minutes: int = Field(default=720, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    max_login_attempts: int = Field(default=5, alias="MAX_LOGIN_ATTEMPTS")
+    login_lock_minutes: int = Field(default=5, alias="LOGIN_LOCK_MINUTES")
+    login_lock_step_minutes: int = Field(default=5, alias="LOGIN_LOCK_STEP_MINUTES")
     demo_auth_enabled: bool = Field(default=True, alias="DEMO_AUTH_ENABLED")
+    cors_allow_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="CORS_ALLOW_ORIGINS",
+    )
 
     mysql_host: str = Field(default="mysql", alias="MYSQL_HOST")
     mysql_port: int = Field(default=3306, alias="MYSQL_PORT")
@@ -39,6 +47,10 @@ class Settings(BaseSettings):
             f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
         )
+
+    @property
+    def cors_allow_origins_list(self) -> List[str]:
+        return [origin.strip().rstrip("/") for origin in self.cors_allow_origins.split(",") if origin.strip()]
 
 
 @lru_cache

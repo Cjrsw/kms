@@ -3,30 +3,44 @@ from __future__ import annotations
 import json
 import re
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.cors_state import get_allowed_origins, set_allowed_origins
 from app.core.deps import require_role
+from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.content import Folder, Note, Repository
-from app.models.user import User
+from app.models.user import AuthAuditLog, Role, User, UserRole
 from app.schemas.admin import (
     AdminContentResponse,
     AdminFolderItem,
     AdminNoteItem,
     AdminRepositoryItem,
+    AdminUserItem,
+    AdminUsersResponse,
+    AuthAuditLogItem,
+    AuthAuditLogResponse,
+    CorsOriginsResponse,
+    CorsOriginsUpdateRequest,
     FolderCreateRequest,
     FolderUpdateRequest,
     NoteCreateRequest,
     NoteUpdateRequest,
     RepositoryCreateRequest,
     RepositoryUpdateRequest,
+    RolesResponse,
+    UserCreateRequest,
+    UserUpdateRequest,
 )
 from app.services.search import delete_note_document, index_note, rebuild_notes_index
+from app.services.system_settings import get_cors_origins_setting, set_cors_origins_setting
 
 router = APIRouter()
 ADMIN_DEPENDENCY = Depends(require_role("platform_admin", "repo_admin"))
+PLATFORM_ADMIN_DEPENDENCY = Depends(require_role("platform_admin"))
 SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -291,6 +305,139 @@ def delete_note(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/users", response_model=AdminUsersResponse, dependencies=[ADMIN_DEPENDENCY])
+def list_users(db: Annotated[Session, Depends(get_db)]) -> AdminUsersResponse:
+    users = db.query(User).options(selectinload(User.roles).selectinload(UserRole.role)).order_by(User.id.asc()).all()
+    roles = [role.code for role in db.query(Role).order_by(Role.id.asc()).all()]
+
+    return AdminUsersResponse(
+        total=len(users),
+        users=[_serialize_user(user) for user in users],
+        roles=roles,
+    )
+
+
+@router.get("/roles", response_model=RolesResponse, dependencies=[ADMIN_DEPENDENCY])
+def list_roles(db: Annotated[Session, Depends(get_db)]) -> RolesResponse:
+    roles = [role.code for role in db.query(Role).order_by(Role.id.asc()).all()]
+    return RolesResponse(roles=roles)
+
+
+@router.get("/security/cors-origins", response_model=CorsOriginsResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def get_cors_origins(db: Annotated[Session, Depends(get_db)]) -> CorsOriginsResponse:
+    persisted = get_cors_origins_setting(db)
+    if persisted is not None:
+        set_allowed_origins(persisted)
+    return CorsOriginsResponse(origins=get_allowed_origins())
+
+
+@router.put("/security/cors-origins", response_model=CorsOriginsResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def update_cors_origins(
+    payload: CorsOriginsUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> CorsOriginsResponse:
+    origins = [_normalize_origin(origin) for origin in payload.origins]
+    if not origins:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CORS origins cannot be empty.")
+    persisted = set_cors_origins_setting(db, origins)
+    set_allowed_origins(persisted)
+    return CorsOriginsResponse(origins=persisted)
+
+
+@router.get("/security/auth-audit", response_model=AuthAuditLogResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def get_auth_audit_logs(
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = 50,
+) -> AuthAuditLogResponse:
+    safe_limit = min(max(limit, 1), 200)
+    logs = db.query(AuthAuditLog).order_by(AuthAuditLog.id.desc()).limit(safe_limit).all()
+    items = [
+        AuthAuditLogItem(
+            id=log.id,
+            username=log.username,
+            event_type=log.event_type,
+            status=log.status,
+            ip_address=log.ip_address,
+            user_agent=log.user_agent,
+            detail=log.detail,
+            created_at=log.created_at.isoformat(),
+        )
+        for log in logs
+    ]
+    return AuthAuditLogResponse(total=len(items), logs=items)
+
+
+@router.post("/users", response_model=AdminUserItem, status_code=status.HTTP_201_CREATED, dependencies=[ADMIN_DEPENDENCY])
+def create_user(payload: UserCreateRequest, db: Annotated[Session, Depends(get_db)]) -> AdminUserItem:
+    _ensure_unique_username_email(db, username=payload.username, email=payload.email)
+    user = User(
+        username=payload.username.strip(),
+        full_name=payload.full_name.strip(),
+        email=payload.email.strip(),
+        hashed_password=get_password_hash(payload.password),
+        clearance_level=payload.clearance_level,
+        is_active=payload.is_active,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    _replace_user_roles(db, user.id, payload.role_codes)
+    db.refresh(user)
+    return _serialize_user(user)
+
+
+@router.put("/users/{user_id}", response_model=AdminUserItem, dependencies=[ADMIN_DEPENDENCY])
+def update_user(user_id: int, payload: UserUpdateRequest, db: Annotated[Session, Depends(get_db)]) -> AdminUserItem:
+    user = (
+        db.query(User)
+        .options(selectinload(User.roles).selectinload(UserRole.role))
+        .filter(User.id == user_id)
+        .first()
+    )
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    _ensure_unique_username_email(db, username=user.username, email=payload.email, exclude_user_id=user_id)
+    old_clearance = user.clearance_level
+    old_active = user.is_active
+    old_role_codes = {user_role.role.code for user_role in user.roles}
+    new_role_codes = set(payload.role_codes)
+    should_rotate_token = False
+
+    user.full_name = payload.full_name.strip()
+    user.email = payload.email.strip()
+    user.clearance_level = payload.clearance_level
+    user.is_active = payload.is_active
+    if payload.password:
+        user.hashed_password = get_password_hash(payload.password)
+        should_rotate_token = True
+    if old_clearance != user.clearance_level or old_active != user.is_active:
+        should_rotate_token = True
+    if old_role_codes != new_role_codes:
+        should_rotate_token = True
+    if should_rotate_token:
+        user.token_version += 1
+    db.add(user)
+    db.commit()
+    _replace_user_roles(db, user.id, payload.role_codes)
+    db.refresh(user)
+    return _serialize_user(user)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[ADMIN_DEPENDENCY])
+def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, ADMIN_DEPENDENCY]) -> Response:
+    if current_user.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete current user.")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    db.delete(user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 def _normalize_slug(raw_slug: str) -> str:
     normalized = SLUG_RE.sub("-", raw_slug.strip().lower()).strip("-")
     if not normalized:
@@ -421,3 +568,46 @@ def _load_note_item(db: Session, note_id: int) -> AdminNoteItem:
         updated_at=note.updated_at.isoformat(),
         attachment_count=len(note.attachments),
     )
+
+
+def _serialize_user(user: User) -> AdminUserItem:
+    role_codes = [user_role.role.code for user_role in user.roles]
+    return AdminUserItem(
+        id=user.id,
+        username=user.username,
+        full_name=user.full_name,
+        email=user.email,
+        clearance_level=user.clearance_level,
+        is_active=user.is_active,
+        role_codes=role_codes,
+    )
+
+
+def _ensure_unique_username_email(
+    db: Session, *, username: str, email: str, exclude_user_id: int | None = None
+) -> None:
+    existing_username = db.query(User).filter(User.username == username, User.id != exclude_user_id).first()
+    if existing_username:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists.")
+
+    existing_email = db.query(User).filter(User.email == email, User.id != exclude_user_id).first()
+    if existing_email:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists.")
+
+
+def _replace_user_roles(db: Session, user_id: int, role_codes: list[str]) -> None:
+    roles = db.query(Role).filter(Role.code.in_(role_codes)).all()
+    db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+    for role in roles:
+        db.add(UserRole(user_id=user_id, role_id=role.id))
+    db.commit()
+
+
+def _normalize_origin(origin: str) -> str:
+    value = origin.strip().rstrip("/")
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid origin: {origin}")
+    if parsed.path not in {"", "/"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Origin must not include path: {origin}")
+    return f"{parsed.scheme}://{parsed.netloc}"

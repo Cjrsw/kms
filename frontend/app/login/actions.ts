@@ -12,11 +12,21 @@ export async function loginAction(formData: FormData) {
     redirect("/login?error=required");
   }
 
-  const token = await loginWithPassword(username, password);
-  if (!token) {
-    redirect("/login?error=invalid");
+  const result = await loginWithPassword(username, password);
+  if (!result.ok) {
+    const params = new URLSearchParams({
+      error: result.code,
+      message: result.message
+    });
+    if (typeof result.remainingAttempts === "number") {
+      params.set("remaining", String(result.remainingAttempts));
+    }
+    if (result.lockedUntil) {
+      params.set("locked_until", result.lockedUntil);
+    }
+    redirect(`/login?${params.toString()}`);
   }
 
-  await setAuthSession(token);
+  await setAuthSession(result.token);
   redirect("/repositories");
 }

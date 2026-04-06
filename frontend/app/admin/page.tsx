@@ -1,21 +1,25 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { BookOpen, FilePenLine, FolderOpen, Layers3, Trash2 } from "lucide-react";
+import { BookOpen, FilePenLine, FolderOpen, Layers3, ShieldCheck, Trash2, Users } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "../../components/app-shell";
-import { getAdminContent } from "../../lib/api";
+import { getAdminAuthAudit, getAdminContent, getAdminCorsOrigins, getAdminUsers } from "../../lib/api";
 import { hasAnyRole, requireCurrentUser } from "../../lib/auth";
 import {
   createFolderAction,
   createNoteAction,
   createRepositoryAction,
+  createUserAction,
   deleteFolderAction,
   deleteNoteAction,
   deleteRepositoryAction,
+  deleteUserAction,
   updateFolderAction,
   updateNoteAction,
-  updateRepositoryAction
+  updateRepositoryAction,
+  updateCorsOriginsAction,
+  updateUserAction
 } from "./actions";
 
 const levelOptions = [1, 2, 3, 4];
@@ -25,8 +29,15 @@ export default async function AdminPage() {
   if (!hasAnyRole(currentUser, ["platform_admin", "repo_admin"])) {
     redirect("/repositories");
   }
+  const isPlatformAdmin = hasAnyRole(currentUser, ["platform_admin"]);
 
-  const adminContent = await getAdminContent();
+  const [adminContent, adminUsers] = await Promise.all([
+    getAdminContent(),
+    getAdminUsers()
+  ]);
+  const [corsOrigins, authAudit] = isPlatformAdmin
+    ? await Promise.all([getAdminCorsOrigins(), getAdminAuthAudit(30)])
+    : [null, null];
 
   return (
     <AppShell
@@ -40,6 +51,209 @@ export default async function AdminPage() {
           <MetricCard label="知识仓库" value={String(adminContent.repository_count)} icon={<BookOpen className="h-4 w-4" />} />
           <MetricCard label="目录数量" value={String(adminContent.folder_count)} icon={<FolderOpen className="h-4 w-4" />} />
           <MetricCard label="笔记数量" value={String(adminContent.note_count)} icon={<FilePenLine className="h-4 w-4" />} />
+          <MetricCard label="用户数量" value={String(adminUsers.total)} icon={<Users className="h-4 w-4" />} />
+        </section>
+
+        {isPlatformAdmin && corsOrigins ? (
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <ShieldCheck className="h-4 w-4 text-blue-600" />
+              <span>安全策略</span>
+            </div>
+            <form action={updateCorsOriginsAction} className="space-y-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4">
+              <p className="text-xs text-gray-600">CORS 白名单（每行一个域名，示例：`http://localhost:3000`）</p>
+              <textarea
+                className="min-h-[110px] rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                defaultValue={corsOrigins.origins.join("\n")}
+                name="origins"
+              />
+              <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
+                保存 CORS 白名单
+              </button>
+            </form>
+          </section>
+        ) : null}
+
+        {isPlatformAdmin && authAudit ? (
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <ShieldCheck className="h-4 w-4 text-blue-600" />
+              <span>认证审计日志（最近 30 条）</span>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <table className="min-w-full text-left text-xs text-gray-700">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2">时间</th>
+                    <th className="px-3 py-2">用户</th>
+                    <th className="px-3 py-2">事件</th>
+                    <th className="px-3 py-2">状态</th>
+                    <th className="px-3 py-2">IP</th>
+                    <th className="px-3 py-2">详情</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {authAudit.logs.map((log) => (
+                    <tr key={log.id} className="border-t border-gray-100">
+                      <td className="px-3 py-2 whitespace-nowrap">{new Date(log.created_at).toLocaleString("zh-CN")}</td>
+                      <td className="px-3 py-2">{log.username || "-"}</td>
+                      <td className="px-3 py-2">{log.event_type}</td>
+                      <td className="px-3 py-2">{log.status}</td>
+                      <td className="px-3 py-2">{log.ip_address || "-"}</td>
+                      <td className="px-3 py-2">{log.detail || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
+            <ShieldCheck className="h-4 w-4 text-blue-600" />
+            <span>用户与权限</span>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <form action={createUserAction} className="grid gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  name="username"
+                  placeholder="用户名（唯一）"
+                  required
+                />
+                <input
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  name="full_name"
+                  placeholder="姓名"
+                  required
+                />
+              </div>
+              <input
+                className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                name="email"
+                placeholder="邮箱"
+                required
+              />
+              <input
+                className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                name="password"
+                placeholder="初始密码"
+                type="password"
+                required
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <select
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  defaultValue="1"
+                  name="clearance_level"
+                >
+                  {levelOptions.map((level) => (
+                    <option key={level} value={level}>
+                      密级 L{level}
+                    </option>
+                  ))}
+                </select>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                  <input defaultChecked name="is_active" type="checkbox" />
+                  启用
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-3 text-sm text-gray-700">
+                {adminUsers.roles.map((role) => (
+                  <label key={role} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                    <input name="role_codes" type="checkbox" value={role} />
+                    {role}
+                  </label>
+                ))}
+              </div>
+              <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
+                创建用户
+              </button>
+            </form>
+
+            <div className="space-y-3">
+              {adminUsers.users.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-gray-200 px-4 py-5 text-sm text-gray-500">当前还没有用户。</p>
+              ) : (
+                adminUsers.users.map((user) => (
+                  <form key={user.id} action={updateUserAction} className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <input name="user_id" type="hidden" value={user.id} />
+                    <div className="grid gap-3 md:grid-cols-[1fr,1fr]">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">{user.username}</p>
+                        <input
+                          className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          defaultValue={user.full_name}
+                          name="full_name"
+                          required
+                        />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <select
+                          className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                          defaultValue={String(user.clearance_level)}
+                          name="clearance_level"
+                        >
+                          {levelOptions.map((level) => (
+                            <option key={level} value={level}>
+                              密级 L{level}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                          <input defaultChecked={user.is_active} name="is_active" type="checkbox" />
+                          启用
+                        </label>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={user.email}
+                        name="email"
+                        required
+                      />
+                      <input
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        name="password"
+                        placeholder="留空则不改密码"
+                        type="password"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-3 text-sm text-gray-700">
+                      {adminUsers.roles.map((role) => (
+                        <label key={role} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                          <input
+                            defaultChecked={user.role_codes.includes(role)}
+                            name="role_codes"
+                            type="checkbox"
+                            value={role}
+                          />
+                          {role}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
+                        保存
+                      </button>
+                      <button
+                        className="inline-flex items-center rounded-xl border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                        formAction={deleteUserAction}
+                        type="submit"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        删除
+                      </button>
+                    </div>
+                  </form>
+                ))
+              )}
+            </div>
+          </div>
         </section>
 
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">

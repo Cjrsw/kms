@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ArrowLeft, ChevronLeft, Edit3, FileText, FolderOpen, Sparkles } from "lucide-react";
 import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { AppShell } from "../../../components/app-shell";
-import { getRepository } from "../../../lib/api";
+import { createNoteUser, getRepository } from "../../../lib/api";
 import { requireCurrentUser } from "../../../lib/auth";
 
 type RepositoryDetailPageProps = {
@@ -12,6 +13,16 @@ type RepositoryDetailPageProps = {
 export default async function RepositoryDetailPage({ params }: RepositoryDetailPageProps) {
   const { repoId } = await params;
   const currentUser = await requireCurrentUser();
+
+  const createNoteAction = async (formData: FormData) => {
+    "use server";
+    const title = String(formData.get("title") ?? "").trim();
+    if (!title) {
+      throw new Error("标题必填");
+    }
+    const note = await createNoteUser(repoId, { title });
+    redirect(`/repositories/${repoId}/notes/${note.id}/edit`);
+  };
 
   let repo: Awaited<ReturnType<typeof getRepository>> | null = null;
   try {
@@ -95,11 +106,11 @@ export default async function RepositoryDetailPage({ params }: RepositoryDetailP
 
               <p className="mb-4 max-w-3xl text-sm leading-7 text-gray-500">{repo.description}</p>
 
-              <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
-                <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-indigo-700">
-                  <span className="inline-flex items-center">
-                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                    AI 助手
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
+              <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-indigo-700">
+                <span className="inline-flex items-center">
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                  AI 助手
                   </span>
                   <button
                     className="rounded-md border border-indigo-200 bg-white px-3 py-1.5 text-indigo-600 transition-colors hover:bg-indigo-50"
@@ -115,23 +126,43 @@ export default async function RepositoryDetailPage({ params }: RepositoryDetailP
                   </button>
                 </div>
               </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-bold text-gray-800">目录统计</p>
+              <p className="mt-2 text-sm leading-6 text-gray-500">
+                当前可见目录 {repo.folders.length} 个，可见笔记 {repo.notes.length} 篇。
+              </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-bold text-gray-800">目录统计</p>
-                <p className="mt-2 text-sm leading-6 text-gray-500">
-                  当前可见目录 {repo.folders.length} 个，可见笔记 {repo.notes.length} 篇。
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-bold text-gray-800">来源跳转约定</p>
-                <p className="mt-2 text-sm leading-6 text-gray-500">
-                  搜索和问答返回的来源统一跳转到笔记详情页，首版不再额外定位到 chunk 片段级别。
-                </p>
-              </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <p className="text-sm font-bold text-gray-800">来源跳转约定</p>
+              <p className="mt-2 text-sm leading-6 text-gray-500">
+                搜索和问答返回的来源统一跳转到笔记详情页，首版不再额外定位到 chunk 片段级别。
+              </p>
             </div>
+          </div>
+
+          {currentUser.clearance_level >= repo.min_clearance_level && (
+            <div className="mt-6 rounded-xl border border-dashed border-blue-200 bg-blue-50/60 p-4">
+              <p className="mb-3 text-sm font-semibold text-gray-800">新建笔记</p>
+              <form action={createNoteAction} className="flex flex-wrap items-center gap-3">
+                <input
+                  className="min-w-[240px] flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  name="title"
+                  placeholder="输入笔记标题"
+                  required
+                />
+                <button
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                  type="submit"
+                >
+                  创建并进入编辑
+                </button>
+              </form>
+            </div>
+          )}
 
             <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6 text-sm leading-7 text-gray-500">
               <div className="flex items-start">

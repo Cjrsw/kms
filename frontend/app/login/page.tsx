@@ -5,10 +5,27 @@ import { getCurrentUser } from "../../lib/auth";
 import { loginAction } from "./actions";
 
 type LoginPageProps = {
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; message?: string; remaining?: string; locked_until?: string }>;
 };
 
-function getErrorMessage(error?: string) {
+function getErrorMessage(error?: string, message?: string, lockedUntil?: string) {
+  if (message) {
+    if (error === "locked" && lockedUntil) {
+      const unlockedAt = new Date(lockedUntil);
+      if (!Number.isNaN(unlockedAt.getTime())) {
+        const unlockedAtBeijing = unlockedAt.toLocaleString("zh-CN", {
+          hour12: false,
+          timeZone: "Asia/Shanghai"
+        });
+        if (unlockedAt.getTime() <= Date.now()) {
+          return `锁定已过期，请重新尝试登录。（上次解锁时间：${unlockedAtBeijing} 北京时间）`;
+        }
+        return `${message}（解锁时间：${unlockedAtBeijing} 北京时间）`;
+      }
+    }
+    return message;
+  }
+
   if (error === "required") {
     return "请输入账号和密码后再登录。";
   }
@@ -27,7 +44,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
 
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const errorMessage = getErrorMessage(resolvedSearchParams?.error);
+  const errorMessage = getErrorMessage(
+    resolvedSearchParams?.error,
+    resolvedSearchParams?.message,
+    resolvedSearchParams?.locked_until
+  );
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#F5F7FA] px-4 font-sans">

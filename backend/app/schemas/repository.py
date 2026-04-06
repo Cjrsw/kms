@@ -60,3 +60,11 @@ class NoteUpdateRequest(BaseModel):
     title: str
     content_text: str
     content_json: str | None = None
+
+
+class NoteCreateRequest(BaseModel):
+    title: str
+    content_text: str = ""
+    content_json: str | None = None
+    folder_id: int | None = None
+    min_clearance_level: int | None = None

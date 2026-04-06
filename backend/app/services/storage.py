@@ -73,6 +73,20 @@ def get_download_url(object_key: str) -> str | None:
     return client.presigned_get_object(settings.minio_bucket, object_key)
 
 
+def get_preview_url(object_key: str) -> str | None:
+    client = get_minio_client()
+    try:
+        client.stat_object(settings.minio_bucket, object_key)
+    except S3Error:
+        return None
+
+    return client.presigned_get_object(
+        settings.minio_bucket,
+        object_key,
+        response_headers={"response-content-disposition": "inline"},
+    )
+
+
 def remove_object(object_key: str) -> None:
     client = get_minio_client()
     client.remove_object(settings.minio_bucket, object_key)

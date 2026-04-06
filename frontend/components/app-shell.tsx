@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { Bell, Database, Info, LayoutDashboard, LogOut, Menu, MessageSquare, Search, Settings, User } from "lucide-react";
@@ -71,14 +70,14 @@ export function AppShell({ title, description, children, contentClassName, curre
             </button>
 
             {!collapsed && (
-              <Link href="/repositories" className="ml-2 flex items-center overflow-hidden">
+              <a href="/repositories" className="ml-2 flex items-center overflow-hidden">
                 <div className="flex h-7 w-7 items-center justify-center rounded bg-blue-600">
                   <span className="text-sm font-bold text-white">K</span>
                 </div>
                 <span className="ml-2 whitespace-nowrap text-lg font-bold tracking-tight text-gray-800">
                   智库 KMS
                 </span>
-              </Link>
+              </a>
             )}
           </div>
 
@@ -88,9 +87,8 @@ export function AppShell({ title, description, children, contentClassName, curre
               const active = isActive(pathname, item.matchers);
 
               return (
-                <Link
+                <a
                   key={item.href}
-                  href={item.href}
                   className={clsx(
                     "flex items-center rounded-lg py-3 transition-all",
                     collapsed ? "justify-center px-0" : "px-3",
@@ -99,6 +97,7 @@ export function AppShell({ title, description, children, contentClassName, curre
                       : "font-medium text-gray-600 hover:bg-gray-100"
                   )}
                   title={collapsed ? item.label : undefined}
+                  href={item.href}
                 >
                   <Icon
                     className={clsx(
@@ -108,7 +107,7 @@ export function AppShell({ title, description, children, contentClassName, curre
                     )}
                   />
                   {!collapsed && <span className="truncate">{item.label}</span>}
-                </Link>
+                </a>
               );
             })}
           </nav>

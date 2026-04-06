@@ -2,9 +2,15 @@ import { notFound } from "next/navigation";
 import { UploadCloud } from "lucide-react";
 import { AppShell } from "../../../../../../components/app-shell";
 import { NoteEditor } from "../../../../../../components/note-editor";
+import { AttachmentUploader } from "../../../../../../components/attachment-uploader";
 import { getNote } from "../../../../../../lib/api";
 import { requireCurrentUser } from "../../../../../../lib/auth";
-import { saveNoteAction, uploadAttachmentAction } from "./actions";
+import {
+  deleteAttachmentAction,
+  replaceAttachmentAction,
+  saveNoteAction,
+  uploadAttachmentAction
+} from "./actions";
 
 type NoteEditPageProps = {
   params: Promise<{ repoId: string; noteId: string }>;
@@ -27,6 +33,8 @@ export default async function NoteEditPage({ params }: NoteEditPageProps) {
 
   const saveAction = saveNoteAction.bind(null, repoId, noteId);
   const uploadAction = uploadAttachmentAction.bind(null, repoId, noteId);
+  const deleteAction = deleteAttachmentAction.bind(null, repoId, noteId);
+  const replaceAction = replaceAttachmentAction.bind(null, repoId, noteId);
 
   return (
     <AppShell
@@ -38,9 +46,17 @@ export default async function NoteEditPage({ params }: NoteEditPageProps) {
         <div className="mb-8 border-b border-gray-100 pb-6">
           <div className="mb-3 flex items-center justify-between gap-4">
             <h2 className="text-3xl font-bold text-gray-900">{note.title}</h2>
-            <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-              编辑模式
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <AttachmentUploader
+                action={uploadAction}
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                label="点击选择附件，自动上传"
+                hint="支持 PDF / DOCX，单文件 20MB 以内"
+              />
+              <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                编辑模式
+              </span>
+            </div>
           </div>
 
           <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
@@ -61,26 +77,72 @@ export default async function NoteEditPage({ params }: NoteEditPageProps) {
 
         <section className="mt-6 overflow-hidden rounded-xl border border-gray-300 bg-white shadow-sm">
           <div className="border-b border-gray-200 bg-gray-50 p-4">
-            <h3 className="text-sm font-semibold text-gray-700">附件上传</h3>
+            <h3 className="text-sm font-semibold text-gray-700">附件管理</h3>
           </div>
           <div className="p-5">
-            <form action={uploadAction} className="space-y-4">
-              <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 px-6 py-8 text-center transition-colors hover:border-blue-300 hover:bg-blue-50/40">
-                <UploadCloud className="mb-2 h-6 w-6 text-gray-400" />
-                <span className="text-sm font-medium text-gray-700">点击选择 PDF 或 DOCX 附件</span>
-                <span className="mt-1 text-xs text-gray-500">首版仅支持 PDF、DOCX，单文件 20MB 以内。</span>
-                <input accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="sr-only" name="attachment" type="file" />
-              </label>
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-500">已有关联附件 {note.attachments.length} 个，上传后会直接刷新当前编辑页。</p>
-                <button
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-                  type="submit"
-                >
-                  上传附件
-                </button>
+            {note.attachments.length > 0 ? (
+              <div className="space-y-3">
+                {note.attachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-gray-900">{attachment.file_name}</p>
+                        <p className="text-xs text-gray-500">
+                          {attachment.file_type.toUpperCase()} · {(attachment.file_size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <a
+                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/preview`}
+                          target="_blank"
+                        >
+                          预览
+                        </a>
+                        <a
+                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
+                          target="_blank"
+                        >
+                          下载
+                        </a>
+                        <form action={deleteAction}>
+                          <input name="attachment_id" type="hidden" value={attachment.id} />
+                          <button
+                            className="rounded border border-red-200 px-2 py-1 text-red-600 transition-colors hover:bg-red-50"
+                            type="submit"
+                          >
+                            删除
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                    <form action={replaceAction} className="flex flex-wrap items-center gap-3">
+                      <input name="attachment_id" type="hidden" value={attachment.id} />
+                      <input
+                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        className="w-full max-w-sm rounded border border-gray-300 px-3 py-2 text-xs text-gray-700"
+                        name="attachment"
+                        type="file"
+                      />
+                      <button
+                        className="rounded border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                        type="submit"
+                      >
+                        替换文件
+                      </button>
+                    </form>
+                  </div>
+                ))}
               </div>
-            </form>
+            ) : (
+              <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+                当前还没有附件。
+              </p>
+            )}
           </div>
         </section>
       </div>

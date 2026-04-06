@@ -18,25 +18,52 @@ type LoginResponse = {
   access_token: string;
 };
 
-export async function loginWithPassword(username: string, password: string): Promise<string | null> {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      username,
-      password
-    }),
-    cache: "no-store"
-  });
+type LoginErrorDetail = {
+  code?: string;
+  message?: string;
+  remaining_attempts?: number | null;
+  locked_until?: string | null;
+};
 
-  if (!response.ok) {
-    return null;
+export type LoginResult =
+  | { ok: true; token: string }
+  | { ok: false; code: string; message: string; remainingAttempts?: number; lockedUntil?: string };
+
+export async function loginWithPassword(username: string, password: string): Promise<LoginResult> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username,
+        password
+      }),
+      cache: "no-store"
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as LoginResponse;
+      return { ok: true, token: data.access_token };
+    }
+
+    const detail = (await response.json().catch(() => ({}))) as { detail?: LoginErrorDetail };
+    return {
+      ok: false,
+      code: detail.detail?.code ?? "invalid",
+      message: detail.detail?.message ?? "账号或密码错误，请重试。",
+      remainingAttempts:
+        typeof detail.detail?.remaining_attempts === "number" ? detail.detail.remaining_attempts : undefined,
+      lockedUntil: detail.detail?.locked_until ?? undefined
+    };
+  } catch {
+    return {
+      ok: false,
+      code: "network",
+      message: "登录服务暂时不可用，请稍后重试。"
+    };
   }
-
-  const data = (await response.json()) as LoginResponse;
-  return data.access_token;
 }
 
 export async function setAuthSession(token: string): Promise<void> {
@@ -87,12 +114,25 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 }
 
 export async function requireCurrentUser(): Promise<AuthUser> {
-  const user = await getCurrentUser();
-  if (!user) {
+  const token = await getSessionToken();
+  if (!token) {
     redirect("/login");
   }
 
-  return user;
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    cache: "no-store"
+  });
+  if (response.status === 401) {
+    redirect("/logout");
+  }
+  if (!response.ok) {
+    redirect("/login");
+  }
+
+  return (await response.json()) as AuthUser;
 }
 
 export function hasAnyRole(user: AuthUser, roleCodes: string[]): boolean {

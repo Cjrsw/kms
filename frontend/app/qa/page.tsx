@@ -60,7 +60,7 @@ export default async function QaPage({ searchParams }: QaPageProps) {
               </button>
             </form>
           </div>
-          <p className="text-xs text-gray-400">当前为检索式问答，答案后附原文来源。</p>
+          <p className="text-xs text-gray-400">当前为检索+大模型生成，始终受权限过滤并附上来源。</p>
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto p-6">
@@ -92,9 +92,13 @@ export default async function QaPage({ searchParams }: QaPageProps) {
                       <span className="text-sm font-bold text-blue-600">AI</span>
                     </div>
                     <div className="rounded-2xl rounded-tl-sm border border-gray-100 bg-gray-50 p-4 text-gray-800">
-                      <p className="whitespace-pre-line leading-relaxed">
-                        {qaResult?.answer ?? "问答结果暂时不可用。"}
-                      </p>
+                      <div className="mb-2 flex items-center gap-2 text-xs text-gray-500">
+                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+                          生成式回答
+                        </span>
+                        {repositorySlug ? <span>范围：{repositorySlug}</span> : <span>范围：全部可见仓库</span>}
+                      </div>
+                      <p className="whitespace-pre-line leading-relaxed">{qaResult?.answer ?? "问答结果暂时不可用。"}</p>
 
                       {qaResult && qaResult.sources.length > 0 && (
                         <div className="mt-4 border-t border-gray-200 pt-4">
