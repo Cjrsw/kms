@@ -7,9 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.deps import get_current_user
+from app.core.security import get_password_hash, is_password_complex, verify_password
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import CurrentUserResponse, LoginRequest, TokenResponse
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    CurrentUserResponse,
+    LoginRequest,
+    TokenResponse,
+    UpdateProfileRequest,
+)
 from app.services.auth import login_with_database_user, serialize_current_user
 from app.services.audit import record_auth_audit
 from app.services.token_revocation import parse_jwt_exp, revoke_token_jti
@@ -39,6 +46,57 @@ def login(payload: LoginRequest, request: Request, db: Annotated[Session, Depend
 @router.get("/me", response_model=CurrentUserResponse)
 def current_user(user: Annotated[User, Depends(get_current_user)]) -> CurrentUserResponse:
     return serialize_current_user(user)
+
+
+@router.put("/me/profile", response_model=CurrentUserResponse)
+def update_profile(
+    payload: UpdateProfileRequest,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CurrentUserResponse:
+    if payload.email and payload.email != user.email:
+        existing = db.query(User).filter(User.email == payload.email, User.id != user.id).first()
+        if existing is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists.")
+
+    user.email = payload.email.strip() if payload.email else None
+    user.phone = payload.phone.strip() if payload.phone else None
+    user.position = payload.position.strip() if payload.position else None
+    user.gender = payload.gender.strip() if payload.gender else None
+    user.bio = payload.bio.strip() if payload.bio else None
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    record_auth_audit(db, event_type="profile_update", status="success", request=request, user=user, detail="self_profile_updated")
+    return serialize_current_user(user)
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    if not verify_password(payload.current_password, user.hashed_password):
+        record_auth_audit(db, event_type="password_change", status="failed", request=request, user=user, detail="current_password_invalid")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect.")
+
+    if not is_password_complex(payload.new_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must include letters and numbers and be 6-64 characters long.",
+        )
+
+    user.hashed_password = get_password_hash(payload.new_password)
+    user.need_password_change = False
+    user.token_version += 1
+    db.add(user)
+    db.commit()
+    record_auth_audit(db, event_type="password_change", status="success", request=request, user=user, detail="self_password_changed")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

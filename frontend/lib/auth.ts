@@ -9,9 +9,16 @@ export type AuthUser = {
   id: number;
   username: string;
   full_name: string;
-  email: string;
+  email: string | null;
   role_codes: string[];
   clearance_level: number;
+  department_id: number | null;
+  department_name: string | null;
+  phone: string | null;
+  position: string | null;
+  gender: string | null;
+  bio: string | null;
+  need_password_change: boolean;
 };
 
 type LoginResponse = {

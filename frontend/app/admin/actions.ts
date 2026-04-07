@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  createDepartmentAdmin,
   createFolderAdmin,
   createNoteAdmin,
   createRepository,
@@ -13,6 +14,7 @@ import {
   deleteRepositoryAdmin,
   deleteUserAdmin,
   updateAdminCorsOrigins,
+  updateDepartmentAdmin,
   updateFolderAdmin,
   updateNoteAdmin,
   updateRepositoryAdmin,
@@ -140,13 +142,11 @@ export async function deleteNoteAction(formData: FormData) {
 
 export async function createUserAction(formData: FormData) {
   await createUserAdmin({
-    username: parseRequiredString(formData, "username"),
     full_name: parseRequiredString(formData, "full_name"),
-    email: parseRequiredString(formData, "email"),
-    password: parseRequiredString(formData, "password"),
-    clearance_level: parseRequiredNumber(formData, "clearance_level"),
-    is_active: parseBoolean(formData, "is_active"),
-    role_codes: formData.getAll("role_codes").map((value) => String(value))
+    department_id: parseOptionalNumber(formData, "department_id"),
+    position: parseRequiredString(formData, "position") || null,
+    gender: parseRequiredString(formData, "gender") || null,
+    clearance_level: parseRequiredNumber(formData, "clearance_level")
   });
   finishAdminMutation();
 }
@@ -154,17 +154,42 @@ export async function createUserAction(formData: FormData) {
 export async function updateUserAction(formData: FormData) {
   await updateUserAdmin(String(formData.get("user_id")), {
     full_name: parseRequiredString(formData, "full_name"),
-    email: parseRequiredString(formData, "email"),
-    password: (formData.get("password") as string | null) || undefined,
+    department_id: parseOptionalNumber(formData, "department_id"),
+    position: parseRequiredString(formData, "position") || null,
+    gender: parseRequiredString(formData, "gender") || null,
+    phone: parseRequiredString(formData, "phone") || null,
+    email: parseRequiredString(formData, "email") || null,
+    bio: parseRequiredString(formData, "bio") || null,
     clearance_level: parseRequiredNumber(formData, "clearance_level"),
     is_active: parseBoolean(formData, "is_active"),
-    role_codes: formData.getAll("role_codes").map((value) => String(value))
   });
   finishAdminMutation();
 }
 
 export async function deleteUserAction(formData: FormData) {
   await deleteUserAdmin(String(formData.get("user_id")));
+  finishAdminMutation();
+}
+
+export async function createDepartmentAction(formData: FormData) {
+  await createDepartmentAdmin({
+    code: parseRequiredString(formData, "code"),
+    name: parseRequiredString(formData, "name"),
+    parent_id: parseOptionalNumber(formData, "parent_id"),
+    sort_order: parseRequiredNumber(formData, "sort_order"),
+    is_active: parseBoolean(formData, "is_active"),
+  });
+  finishAdminMutation();
+}
+
+export async function updateDepartmentAction(formData: FormData) {
+  await updateDepartmentAdmin(String(formData.get("department_id")), {
+    code: parseRequiredString(formData, "code"),
+    name: parseRequiredString(formData, "name"),
+    parent_id: parseOptionalNumber(formData, "parent_id"),
+    sort_order: parseRequiredNumber(formData, "sort_order"),
+    is_active: parseBoolean(formData, "is_active"),
+  });
   finishAdminMutation();
 }
 

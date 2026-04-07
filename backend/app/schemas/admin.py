@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-from typing import List
 
 
 class AdminNoteItem(BaseModel):
@@ -45,20 +44,61 @@ class AdminUserItem(BaseModel):
     id: int
     username: str
     full_name: str
-    email: str
+    email: str | None
+    phone: str | None
+    department_id: int | None
+    department_name: str | None
+    position: str | None
+    gender: str | None
+    bio: str | None
     clearance_level: int
     is_active: bool
-    role_codes: List[str]
+    deactivated_at: str | None
+    role_code: str
+    need_password_change: bool
+    created_at: str
 
 
 class AdminUsersResponse(BaseModel):
     total: int
     users: list[AdminUserItem]
     roles: list[str]
+    departments: list["DepartmentItem"]
 
 
 class RolesResponse(BaseModel):
     roles: list[str]
+
+
+class DepartmentItem(BaseModel):
+    id: int
+    code: str
+    name: str
+    parent_id: int | None
+    is_active: bool
+    sort_order: int
+    member_count: int
+
+
+class DepartmentsResponse(BaseModel):
+    total: int
+    departments: list[DepartmentItem]
+
+
+class DepartmentCreateRequest(BaseModel):
+    code: str
+    name: str
+    parent_id: int | None = None
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class DepartmentUpdateRequest(BaseModel):
+    code: str
+    name: str
+    parent_id: int | None = None
+    sort_order: int = 0
+    is_active: bool = True
 
 
 class CorsOriginsResponse(BaseModel):
@@ -130,19 +170,23 @@ class NoteUpdateRequest(BaseModel):
 
 
 class UserCreateRequest(BaseModel):
-    username: str
     full_name: str
-    email: str
-    password: str
-    clearance_level: int = Field(default=1, ge=1, le=4)
-    is_active: bool = True
-    role_codes: list[str] = []
+    department_id: int | None = None
+    position: str | None = None
+    gender: str | None = None
+    clearance_level: int = Field(default=1, ge=1, le=3)
 
 
 class UserUpdateRequest(BaseModel):
     full_name: str
-    email: str
-    password: str | None = None
-    clearance_level: int = Field(default=1, ge=1, le=4)
+    department_id: int | None = None
+    position: str | None = None
+    gender: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    bio: str | None = None
+    clearance_level: int = Field(default=1, ge=1, le=3)
     is_active: bool = True
-    role_codes: list[str] = []
+
+
+AdminUsersResponse.model_rebuild()

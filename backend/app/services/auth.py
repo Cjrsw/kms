@@ -123,6 +123,13 @@ def login_with_database_user(db: Session, username: str, password: str, request:
         email=user.email,
         role_codes=role_codes,
         clearance_level=user.clearance_level,
+        department_id=user.department_id,
+        department_name=user.department.name if user.department else None,
+        phone=user.phone,
+        position=user.position,
+        gender=user.gender,
+        bio=user.bio,
+        need_password_change=user.need_password_change,
     )
     record_auth_audit(db, event_type="login", status="success", request=request, user=user, detail="login_success")
     return LoginResult(token=token)
@@ -136,4 +143,11 @@ def serialize_current_user(user: User) -> CurrentUserResponse:
         email=user.email,
         role_codes=[user_role.role.code for user_role in user.roles],
         clearance_level=user.clearance_level,
+        department_id=user.department_id,
+        department_name=user.department.name if user.department else None,
+        phone=user.phone,
+        position=user.position,
+        gender=user.gender,
+        bio=user.bio,
+        need_password_change=user.need_password_change,
     )

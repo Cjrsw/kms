@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { BookOpen, FilePenLine, FolderOpen, Layers3, ShieldCheck, Trash2, Users } from "lucide-react";
+import { BookOpen, Building2, FilePenLine, FolderOpen, Layers3, ShieldCheck, Trash2, Users } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "../../components/app-shell";
@@ -10,11 +10,13 @@ import {
   createFolderAction,
   createNoteAction,
   createRepositoryAction,
+  createDepartmentAction,
   createUserAction,
   deleteFolderAction,
   deleteNoteAction,
   deleteRepositoryAction,
   deleteUserAction,
+  updateDepartmentAction,
   updateFolderAction,
   updateNoteAction,
   updateRepositoryAction,
@@ -23,17 +25,37 @@ import {
 } from "./actions";
 
 const levelOptions = [1, 2, 3, 4];
+const employeeClearanceOptions = [1, 2, 3];
 
-export default async function AdminPage() {
+type AdminPageProps = {
+  searchParams?: Promise<{
+    department_id?: string;
+    keyword?: string;
+    account_status?: "all" | "active" | "inactive";
+  }>;
+};
+
+export default async function AdminPage({ searchParams }: AdminPageProps) {
   const currentUser = await requireCurrentUser();
-  if (!hasAnyRole(currentUser, ["platform_admin", "repo_admin"])) {
+  if (!hasAnyRole(currentUser, ["admin"])) {
     redirect("/repositories");
   }
-  const isPlatformAdmin = hasAnyRole(currentUser, ["platform_admin"]);
+  const isPlatformAdmin = hasAnyRole(currentUser, ["admin"]);
+  const query = searchParams ? await searchParams : undefined;
+  const departmentIdFilter = query?.department_id ? Number(query.department_id) : null;
+  const keywordFilter = query?.keyword?.trim() || "";
+  const accountStatusFilter: "all" | "active" | "inactive" =
+    query?.account_status === "active" || query?.account_status === "inactive"
+      ? query.account_status
+      : "all";
 
   const [adminContent, adminUsers] = await Promise.all([
     getAdminContent(),
-    getAdminUsers()
+    getAdminUsers({
+      department_id: Number.isFinite(departmentIdFilter ?? NaN) ? departmentIdFilter : null,
+      keyword: keywordFilter,
+      account_status: accountStatusFilter
+    })
   ]);
   const [corsOrigins, authAudit] = isPlatformAdmin
     ? await Promise.all([getAdminCorsOrigins(), getAdminAuthAudit(30)])
@@ -112,65 +134,96 @@ export default async function AdminPage() {
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
             <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span>用户与权限</span>
+            <span>员工与权限</span>
           </div>
+
+          <form action="/admin" className="mb-4 grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-4">
+            <input
+              className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              defaultValue={keywordFilter}
+              name="keyword"
+              placeholder="按姓名/账号/电话搜索"
+            />
+            <select
+              className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              defaultValue={departmentIdFilter ? String(departmentIdFilter) : ""}
+              name="department_id"
+            >
+              <option value="">全部部门</option>
+              {adminUsers.departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+              defaultValue={accountStatusFilter}
+              name="account_status"
+            >
+              <option value="all">全部状态</option>
+              <option value="active">启用</option>
+              <option value="inactive">停用</option>
+            </select>
+            <button className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black" type="submit">
+              筛选
+            </button>
+          </form>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <form action={createUserAction} className="grid gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4">
               <div className="grid gap-3 md:grid-cols-2">
                 <input
                   className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                  name="username"
-                  placeholder="用户名（唯一）"
-                  required
-                />
-                <input
-                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                   name="full_name"
-                  placeholder="姓名"
+                  placeholder="员工姓名"
                   required
                 />
+                <select
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  defaultValue=""
+                  name="department_id"
+                >
+                  <option value="">未分配部门</option>
+                  {adminUsers.departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <input
-                className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                name="email"
-                placeholder="邮箱"
-                required
-              />
-              <input
-                className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                name="password"
-                placeholder="初始密码"
-                type="password"
-                required
-              />
               <div className="grid gap-3 md:grid-cols-2">
                 <select
                   className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                   defaultValue="1"
                   name="clearance_level"
                 >
-                  {levelOptions.map((level) => (
+                  {employeeClearanceOptions.map((level) => (
                     <option key={level} value={level}>
-                      密级 L{level}
+                      权限 L{level}
                     </option>
                   ))}
                 </select>
-                <label className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
-                  <input defaultChecked name="is_active" type="checkbox" />
-                  启用
-                </label>
+                <select
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  defaultValue=""
+                  name="gender"
+                >
+                  <option value="">性别未设置</option>
+                  <option value="男">男</option>
+                  <option value="女">女</option>
+                </select>
               </div>
-              <div className="flex flex-wrap gap-3 text-sm text-gray-700">
-                {adminUsers.roles.map((role) => (
-                  <label key={role} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
-                    <input name="role_codes" type="checkbox" value={role} />
-                    {role}
-                  </label>
-                ))}
-              </div>
+              <input
+                className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                name="position"
+                placeholder="职位（可选）"
+              />
+              <p className="rounded-lg bg-white px-3 py-2 text-xs text-gray-600">
+                系统将自动创建账号：`姓名@kms.com`（重名自动加后缀），默认密码 `123456`，默认启用，消息红点提醒改密。
+              </p>
               <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
-                创建用户
+                创建员工
               </button>
             </form>
 
@@ -196,57 +249,209 @@ export default async function AdminPage() {
                           className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                           defaultValue={String(user.clearance_level)}
                           name="clearance_level"
+                          disabled={user.role_code === "admin"}
                         >
-                          {levelOptions.map((level) => (
+                          {employeeClearanceOptions.map((level) => (
                             <option key={level} value={level}>
-                              密级 L{level}
+                              权限 L{level}
                             </option>
                           ))}
                         </select>
                         <label className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
-                          <input defaultChecked={user.is_active} name="is_active" type="checkbox" />
+                          <input
+                            defaultChecked={user.is_active}
+                            disabled={user.role_code === "admin"}
+                            name="is_active"
+                            type="checkbox"
+                          />
                           启用
                         </label>
                       </div>
                     </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <select
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={user.department_id ? String(user.department_id) : ""}
+                        disabled={user.role_code === "admin"}
+                        name="department_id"
+                      >
+                        <option value="">未分配部门</option>
+                        {adminUsers.departments.map((department) => (
+                          <option key={department.id} value={department.id}>
+                            {department.name}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={user.position || ""}
+                        disabled={user.role_code === "admin"}
+                        name="position"
+                        placeholder="职位"
+                      />
+                      <select
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={user.gender || ""}
+                        disabled={user.role_code === "admin"}
+                        name="gender"
+                      >
+                        <option value="">性别未设置</option>
+                        <option value="男">男</option>
+                        <option value="女">女</option>
+                      </select>
+                    </div>
                     <div className="grid gap-3 md:grid-cols-2">
                       <input
                         className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                        defaultValue={user.email}
-                        name="email"
-                        required
+                        defaultValue={user.phone || ""}
+                        disabled={user.role_code === "admin"}
+                        name="phone"
+                        placeholder="手机号（可留空）"
                       />
                       <input
                         className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                        name="password"
-                        placeholder="留空则不改密码"
-                        type="password"
+                        defaultValue={user.email || ""}
+                        disabled={user.role_code === "admin"}
+                        name="email"
+                        placeholder="邮箱（可留空）"
                       />
                     </div>
-                    <div className="flex flex-wrap gap-3 text-sm text-gray-700">
-                      {adminUsers.roles.map((role) => (
-                        <label key={role} className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
-                          <input
-                            defaultChecked={user.role_codes.includes(role)}
-                            name="role_codes"
-                            type="checkbox"
-                            value={role}
-                          />
-                          {role}
-                        </label>
-                      ))}
-                    </div>
+                    <textarea
+                      className="min-h-[74px] rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                      defaultValue={user.bio || ""}
+                      disabled={user.role_code === "admin"}
+                      name="bio"
+                      placeholder="员工简介（可留空）"
+                    />
+                    <p className="text-xs text-gray-500">
+                      角色：{user.role_code} · 创建时间：{new Date(user.created_at).toLocaleString("zh-CN")} · 离职时间：
+                      {user.deactivated_at ? new Date(user.deactivated_at).toLocaleString("zh-CN") : "未离职"}
+                    </p>
                     <div className="flex gap-2">
                       <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
                         保存
                       </button>
-                      <button
-                        className="inline-flex items-center rounded-xl border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-                        formAction={deleteUserAction}
-                        type="submit"
+                      {user.role_code !== "admin" ? (
+                        <button
+                          className="inline-flex items-center rounded-xl border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                          formAction={deleteUserAction}
+                          type="submit"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          删除
+                        </button>
+                      ) : null}
+                    </div>
+                  </form>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-800">
+            <Building2 className="h-4 w-4 text-blue-600" />
+            <span>部门管理</span>
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <form action={createDepartmentAction} className="grid gap-3 rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  name="code"
+                  placeholder="部门编码（如 sales）"
+                  required
+                />
+                <input
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  name="name"
+                  placeholder="部门名称"
+                  required
+                />
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <select
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  defaultValue=""
+                  name="parent_id"
+                >
+                  <option value="">无上级部门</option>
+                  {adminUsers.departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  defaultValue="0"
+                  min={0}
+                  name="sort_order"
+                  type="number"
+                />
+                <label className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                  <input defaultChecked name="is_active" type="checkbox" />
+                  启用
+                </label>
+              </div>
+              <button className="w-fit rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
+                创建部门
+              </button>
+            </form>
+
+            <div className="space-y-3">
+              {adminUsers.departments.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-gray-200 px-4 py-5 text-sm text-gray-500">当前还没有部门。</p>
+              ) : (
+                adminUsers.departments.map((department) => (
+                  <form key={department.id} action={updateDepartmentAction} className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <input name="department_id" type="hidden" value={department.id} />
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={department.code}
+                        name="code"
+                        required
+                      />
+                      <input
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={department.name}
+                        name="name"
+                        required
+                      />
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <select
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={department.parent_id ? String(department.parent_id) : ""}
+                        name="parent_id"
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        删除
+                        <option value="">无上级部门</option>
+                        {adminUsers.departments
+                          .filter((candidate) => candidate.id !== department.id)
+                          .map((candidate) => (
+                            <option key={candidate.id} value={candidate.id}>
+                              {candidate.name}
+                            </option>
+                          ))}
+                      </select>
+                      <input
+                        className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        defaultValue={department.sort_order}
+                        min={0}
+                        name="sort_order"
+                        type="number"
+                      />
+                      <label className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                        <input defaultChecked={department.is_active} name="is_active" type="checkbox" />
+                        启用
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-gray-500">部门人数：{department.member_count}</p>
+                      <button className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" type="submit">
+                        保存部门
                       </button>
                     </div>
                   </form>

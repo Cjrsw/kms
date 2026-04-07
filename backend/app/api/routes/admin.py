@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.cors_state import get_allowed_origins, set_allowed_origins
@@ -13,7 +15,7 @@ from app.core.deps import require_role
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.content import Folder, Note, Repository
-from app.models.user import AuthAuditLog, Role, User, UserRole
+from app.models.user import AuthAuditLog, Department, Role, User, UserRole
 from app.schemas.admin import (
     AdminContentResponse,
     AdminFolderItem,
@@ -25,6 +27,10 @@ from app.schemas.admin import (
     AuthAuditLogResponse,
     CorsOriginsResponse,
     CorsOriginsUpdateRequest,
+    DepartmentCreateRequest,
+    DepartmentItem,
+    DepartmentsResponse,
+    DepartmentUpdateRequest,
     FolderCreateRequest,
     FolderUpdateRequest,
     NoteCreateRequest,
@@ -39,8 +45,10 @@ from app.services.search import delete_note_document, index_note, rebuild_notes_
 from app.services.system_settings import get_cors_origins_setting, set_cors_origins_setting
 
 router = APIRouter()
-ADMIN_DEPENDENCY = Depends(require_role("platform_admin", "repo_admin"))
-PLATFORM_ADMIN_DEPENDENCY = Depends(require_role("platform_admin"))
+ADMIN_ROLE_CODE = "admin"
+EMPLOYEE_ROLE_CODE = "employee"
+ADMIN_DEPENDENCY = Depends(require_role(ADMIN_ROLE_CODE))
+PLATFORM_ADMIN_DEPENDENCY = Depends(require_role(ADMIN_ROLE_CODE))
 SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -305,22 +313,122 @@ def delete_note(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/departments", response_model=DepartmentsResponse, dependencies=[ADMIN_DEPENDENCY])
+def list_departments(db: Annotated[Session, Depends(get_db)]) -> DepartmentsResponse:
+    departments = db.query(Department).order_by(Department.sort_order.asc(), Department.id.asc()).all()
+    items = [_serialize_department(db, department) for department in departments]
+    return DepartmentsResponse(total=len(items), departments=items)
+
+
+@router.post("/departments", response_model=DepartmentItem, status_code=status.HTTP_201_CREATED, dependencies=[ADMIN_DEPENDENCY])
+def create_department(payload: DepartmentCreateRequest, db: Annotated[Session, Depends(get_db)]) -> DepartmentItem:
+    code = payload.code.strip().lower()
+    name = payload.name.strip()
+    if not code or not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department code and name are required.")
+
+    if db.query(Department).filter(Department.code == code).first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department code already exists.")
+    if db.query(Department).filter(Department.name == name).first() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department name already exists.")
+    if payload.parent_id is not None and db.query(Department).filter(Department.id == payload.parent_id).first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent department not found.")
+
+    department = Department(
+        code=code,
+        name=name,
+        parent_id=payload.parent_id,
+        sort_order=payload.sort_order,
+        is_active=payload.is_active,
+    )
+    db.add(department)
+    db.commit()
+    db.refresh(department)
+    return _serialize_department(db, department)
+
+
+@router.put("/departments/{department_id}", response_model=DepartmentItem, dependencies=[ADMIN_DEPENDENCY])
+def update_department(
+    department_id: int,
+    payload: DepartmentUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> DepartmentItem:
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if department is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found.")
+
+    code = payload.code.strip().lower()
+    name = payload.name.strip()
+    if not code or not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department code and name are required.")
+    if payload.parent_id == department.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department cannot be its own parent.")
+    if payload.parent_id is not None and db.query(Department).filter(Department.id == payload.parent_id).first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent department not found.")
+
+    duplicate_code = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
+    if duplicate_code is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department code already exists.")
+    duplicate_name = db.query(Department).filter(Department.name == name, Department.id != department_id).first()
+    if duplicate_name is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department name already exists.")
+
+    department.code = code
+    department.name = name
+    department.parent_id = payload.parent_id
+    department.sort_order = payload.sort_order
+    department.is_active = payload.is_active
+    db.add(department)
+    db.commit()
+    db.refresh(department)
+    return _serialize_department(db, department)
+
+
 @router.get("/users", response_model=AdminUsersResponse, dependencies=[ADMIN_DEPENDENCY])
-def list_users(db: Annotated[Session, Depends(get_db)]) -> AdminUsersResponse:
-    users = db.query(User).options(selectinload(User.roles).selectinload(UserRole.role)).order_by(User.id.asc()).all()
-    roles = [role.code for role in db.query(Role).order_by(Role.id.asc()).all()]
+def list_users(
+    db: Annotated[Session, Depends(get_db)],
+    department_id: int | None = None,
+    keyword: str | None = None,
+    account_status: str = "all",
+) -> AdminUsersResponse:
+    query = db.query(User).options(
+        selectinload(User.roles).selectinload(UserRole.role),
+        selectinload(User.department),
+    )
+    if department_id is not None:
+        query = query.filter(User.department_id == department_id)
+
+    normalized_keyword = (keyword or "").strip()
+    if normalized_keyword:
+        like_keyword = f"%{normalized_keyword}%"
+        query = query.filter(
+            or_(
+                User.full_name.like(like_keyword),
+                User.username.like(like_keyword),
+                User.phone.like(like_keyword),
+            )
+        )
+
+    if account_status == "active":
+        query = query.filter(User.is_active.is_(True))
+    elif account_status == "inactive":
+        query = query.filter(User.is_active.is_(False))
+
+    users = query.order_by(User.id.asc()).all()
+    roles = [ADMIN_ROLE_CODE, EMPLOYEE_ROLE_CODE]
+    departments = db.query(Department).order_by(Department.sort_order.asc(), Department.id.asc()).all()
 
     return AdminUsersResponse(
         total=len(users),
         users=[_serialize_user(user) for user in users],
         roles=roles,
+        departments=[_serialize_department(db, department) for department in departments],
     )
 
 
 @router.get("/roles", response_model=RolesResponse, dependencies=[ADMIN_DEPENDENCY])
-def list_roles(db: Annotated[Session, Depends(get_db)]) -> RolesResponse:
-    roles = [role.code for role in db.query(Role).order_by(Role.id.asc()).all()]
-    return RolesResponse(roles=roles)
+def list_roles() -> RolesResponse:
+    return RolesResponse(roles=[ADMIN_ROLE_CODE, EMPLOYEE_ROLE_CODE])
 
 
 @router.get("/security/cors-origins", response_model=CorsOriginsResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
@@ -369,19 +477,31 @@ def get_auth_audit_logs(
 
 @router.post("/users", response_model=AdminUserItem, status_code=status.HTTP_201_CREATED, dependencies=[ADMIN_DEPENDENCY])
 def create_user(payload: UserCreateRequest, db: Annotated[Session, Depends(get_db)]) -> AdminUserItem:
-    _ensure_unique_username_email(db, username=payload.username, email=payload.email)
+    if payload.department_id is not None and db.query(Department).filter(Department.id == payload.department_id).first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found.")
+
+    full_name = payload.full_name.strip()
+    if not full_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Full name is required.")
+
+    username = _generate_employee_username(db, full_name)
     user = User(
-        username=payload.username.strip(),
-        full_name=payload.full_name.strip(),
-        email=payload.email.strip(),
-        hashed_password=get_password_hash(payload.password),
+        username=username,
+        full_name=full_name,
+        email=None,
+        phone=None,
+        position=(payload.position or "").strip() or None,
+        gender=(payload.gender or "").strip() or None,
+        hashed_password=get_password_hash("123456"),
         clearance_level=payload.clearance_level,
-        is_active=payload.is_active,
+        department_id=payload.department_id,
+        is_active=True,
+        need_password_change=True,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    _replace_user_roles(db, user.id, payload.role_codes)
+    _replace_user_roles(db, user.id, [EMPLOYEE_ROLE_CODE])
     db.refresh(user)
     return _serialize_user(user)
 
@@ -390,36 +510,54 @@ def create_user(payload: UserCreateRequest, db: Annotated[Session, Depends(get_d
 def update_user(user_id: int, payload: UserUpdateRequest, db: Annotated[Session, Depends(get_db)]) -> AdminUserItem:
     user = (
         db.query(User)
-        .options(selectinload(User.roles).selectinload(UserRole.role))
+        .options(
+            selectinload(User.roles).selectinload(UserRole.role),
+            selectinload(User.department),
+        )
         .filter(User.id == user_id)
         .first()
     )
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
-    _ensure_unique_username_email(db, username=user.username, email=payload.email, exclude_user_id=user_id)
+    if _has_role(user, ADMIN_ROLE_CODE):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="System admin user cannot be edited here.")
+
+    if payload.department_id is not None and db.query(Department).filter(Department.id == payload.department_id).first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found.")
+
+    if payload.email:
+        _ensure_unique_username_email(db, username=user.username, email=payload.email, exclude_user_id=user_id)
+
     old_clearance = user.clearance_level
     old_active = user.is_active
-    old_role_codes = {user_role.role.code for user_role in user.roles}
-    new_role_codes = set(payload.role_codes)
     should_rotate_token = False
 
     user.full_name = payload.full_name.strip()
-    user.email = payload.email.strip()
+    user.department_id = payload.department_id
+    user.position = payload.position.strip() if payload.position else None
+    user.gender = payload.gender.strip() if payload.gender else None
+    user.phone = payload.phone.strip() if payload.phone else None
+    user.email = payload.email.strip() if payload.email else None
+    user.bio = payload.bio.strip() if payload.bio else None
     user.clearance_level = payload.clearance_level
     user.is_active = payload.is_active
-    if payload.password:
-        user.hashed_password = get_password_hash(payload.password)
+
+    if old_active and not user.is_active:
+        user.deactivated_at = datetime.now(UTC).replace(tzinfo=None)
         should_rotate_token = True
-    if old_clearance != user.clearance_level or old_active != user.is_active:
+    elif (not old_active) and user.is_active:
+        user.deactivated_at = None
         should_rotate_token = True
-    if old_role_codes != new_role_codes:
+
+    if old_clearance != user.clearance_level:
         should_rotate_token = True
+
     if should_rotate_token:
         user.token_version += 1
+
     db.add(user)
     db.commit()
-    _replace_user_roles(db, user.id, payload.role_codes)
     db.refresh(user)
     return _serialize_user(user)
 
@@ -429,9 +567,11 @@ def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)], current_u
     if current_user.id == user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete current user.")
 
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).options(selectinload(User.roles).selectinload(UserRole.role)).filter(User.id == user_id).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if _has_role(user, ADMIN_ROLE_CODE):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="System admin user cannot be deleted.")
 
     db.delete(user)
     db.commit()
@@ -571,28 +711,38 @@ def _load_note_item(db: Session, note_id: int) -> AdminNoteItem:
 
 
 def _serialize_user(user: User) -> AdminUserItem:
-    role_codes = [user_role.role.code for user_role in user.roles]
+    role_code = ADMIN_ROLE_CODE if _has_role(user, ADMIN_ROLE_CODE) else EMPLOYEE_ROLE_CODE
     return AdminUserItem(
         id=user.id,
         username=user.username,
         full_name=user.full_name,
         email=user.email,
+        phone=user.phone,
+        department_id=user.department_id,
+        department_name=user.department.name if user.department else None,
+        position=user.position,
+        gender=user.gender,
+        bio=user.bio,
         clearance_level=user.clearance_level,
         is_active=user.is_active,
-        role_codes=role_codes,
+        deactivated_at=user.deactivated_at.isoformat() if user.deactivated_at else None,
+        role_code=role_code,
+        need_password_change=user.need_password_change,
+        created_at=user.created_at.isoformat(),
     )
 
 
 def _ensure_unique_username_email(
-    db: Session, *, username: str, email: str, exclude_user_id: int | None = None
+    db: Session, *, username: str, email: str | None, exclude_user_id: int | None = None
 ) -> None:
     existing_username = db.query(User).filter(User.username == username, User.id != exclude_user_id).first()
     if existing_username:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists.")
 
-    existing_email = db.query(User).filter(User.email == email, User.id != exclude_user_id).first()
-    if existing_email:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists.")
+    if email:
+        existing_email = db.query(User).filter(User.email == email, User.id != exclude_user_id).first()
+        if existing_email:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists.")
 
 
 def _replace_user_roles(db: Session, user_id: int, role_codes: list[str]) -> None:
@@ -601,6 +751,40 @@ def _replace_user_roles(db: Session, user_id: int, role_codes: list[str]) -> Non
     for role in roles:
         db.add(UserRole(user_id=user_id, role_id=role.id))
     db.commit()
+
+
+def _serialize_department(db: Session, department: Department) -> DepartmentItem:
+    member_count = db.query(func.count(User.id)).filter(User.department_id == department.id).scalar() or 0
+    return DepartmentItem(
+        id=department.id,
+        code=department.code,
+        name=department.name,
+        parent_id=department.parent_id,
+        is_active=department.is_active,
+        sort_order=department.sort_order,
+        member_count=int(member_count),
+    )
+
+
+def _generate_employee_username(db: Session, full_name: str) -> str:
+    base_name = "".join(full_name.split())
+    if not base_name:
+        base_name = "employee"
+    max_name_len = 40
+    base_name = base_name[:max_name_len]
+    base = f"{base_name}@kms.com"
+    candidate = base
+    suffix = 1
+    while db.query(User).filter(User.username == candidate).first() is not None:
+        suffix += 1
+        suffix_text = str(suffix)
+        allowed_len = max_name_len - len(suffix_text)
+        candidate = f"{base_name[:allowed_len]}{suffix_text}@kms.com"
+    return candidate
+
+
+def _has_role(user: User, role_code: str) -> bool:
+    return any(user_role.role.code == role_code for user_role in user.roles)
 
 
 def _normalize_origin(origin: str) -> str:

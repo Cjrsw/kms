@@ -2,29 +2,46 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.models.content import Attachment, Folder, Note, Repository
-from app.models.user import Role, User, UserRole
+from app.models.user import Department, Role, User, UserRole
 
 
 def seed_database(db: Session) -> None:
     role_seed = [
-        ("platform_admin", "平台管理员"),
-        ("repo_admin", "仓库管理员"),
-        ("employee", "普通员工"),
+        ("admin", "管理员"),
+        ("employee", "员工"),
     ]
 
     for code, name in role_seed:
-        if db.query(Role).filter(Role.code == code).first() is None:
-            db.add(Role(code=code, name=name))
+        role = db.query(Role).filter(Role.code == code).first()
+        if role is None:
+            role = Role(code=code, name=name, is_system=True)
+        else:
+            role.name = name
+            role.is_system = True
+        db.add(role)
+    db.commit()
+
+    department_seed = [
+        ("unassigned", "未分配"),
+        ("hr", "人力资源部"),
+        ("rnd", "研发部"),
+        ("ops", "运营部"),
+    ]
+    for code, name in department_seed:
+        department = db.query(Department).filter(Department.code == code).first()
+        if department is None:
+            db.add(Department(code=code, name=name, is_active=True))
     db.commit()
 
     admin_user = db.query(User).filter(User.username == "admin").first()
     if admin_user is None:
         admin_user = User(
             username="admin",
-            full_name="平台管理员",
+            full_name="系统管理员",
             email="admin@example.com",
             hashed_password=get_password_hash("123456"),
             clearance_level=4,
+            need_password_change=False,
         )
         db.add(admin_user)
         db.commit()
@@ -38,12 +55,13 @@ def seed_database(db: Session) -> None:
             email="user@example.com",
             hashed_password=get_password_hash("123456"),
             clearance_level=2,
+            need_password_change=False,
         )
         db.add(normal_user)
         db.commit()
         db.refresh(normal_user)
 
-    _ensure_user_role(db, admin_user.id, "platform_admin")
+    _ensure_user_role(db, admin_user.id, "admin")
     _ensure_user_role(db, normal_user.id, "employee")
 
     if db.query(Repository).count() == 0:

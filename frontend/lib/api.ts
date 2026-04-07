@@ -129,16 +129,36 @@ export type AdminUserItem = {
   id: number;
   username: string;
   full_name: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
+  department_id: number | null;
+  department_name: string | null;
+  position: string | null;
+  gender: string | null;
+  bio: string | null;
   clearance_level: number;
   is_active: boolean;
-  role_codes: string[];
+  deactivated_at: string | null;
+  role_code: string;
+  need_password_change: boolean;
+  created_at: string;
+};
+
+export type DepartmentItem = {
+  id: number;
+  code: string;
+  name: string;
+  parent_id: number | null;
+  is_active: boolean;
+  sort_order: number;
+  member_count: number;
 };
 
 export type AdminUsersResponse = {
   total: number;
   users: AdminUserItem[];
   roles: string[];
+  departments: DepartmentItem[];
 };
 
 export type AdminCorsOrigins = {
@@ -159,6 +179,14 @@ export type AdminAuthAuditItem = {
 export type AdminAuthAuditResponse = {
   total: number;
   logs: AdminAuthAuditItem[];
+};
+
+export type ProfilePayload = {
+  email?: string | null;
+  phone?: string | null;
+  position?: string | null;
+  gender?: string | null;
+  bio?: string | null;
 };
 
 async function getRequiredAccessToken(): Promise<string> {
@@ -453,18 +481,31 @@ export async function deleteNoteAdmin(noteId: string): Promise<void> {
   await apiJsonRequest<void>(`/admin/notes/${noteId}`, "DELETE");
 }
 
-export async function getAdminUsers(): Promise<AdminUsersResponse> {
-  return apiFetch<AdminUsersResponse>("/admin/users");
+export async function getAdminUsers(filters?: {
+  department_id?: number | null;
+  keyword?: string;
+  account_status?: "all" | "active" | "inactive";
+}): Promise<AdminUsersResponse> {
+  const params = new URLSearchParams();
+  if (typeof filters?.department_id === "number") {
+    params.set("department_id", String(filters.department_id));
+  }
+  if (filters?.keyword?.trim()) {
+    params.set("keyword", filters.keyword.trim());
+  }
+  if (filters?.account_status) {
+    params.set("account_status", filters.account_status);
+  }
+  const query = params.toString();
+  return apiFetch<AdminUsersResponse>(`/admin/users${query ? `?${query}` : ""}`);
 }
 
 export async function createUserAdmin(payload: {
-  username: string;
   full_name: string;
-  email: string;
-  password: string;
+  department_id?: number | null;
+  position?: string | null;
+  gender?: string | null;
   clearance_level: number;
-  is_active: boolean;
-  role_codes: string[];
 }): Promise<AdminUserItem> {
   return apiJsonRequest<AdminUserItem>("/admin/users", "POST", payload);
 }
@@ -473,11 +514,14 @@ export async function updateUserAdmin(
   userId: string,
   payload: {
     full_name: string;
-    email: string;
-    password?: string;
+    department_id?: number | null;
+    position?: string | null;
+    gender?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    bio?: string | null;
     clearance_level: number;
     is_active: boolean;
-    role_codes: string[];
   }
 ): Promise<AdminUserItem> {
   return apiJsonRequest<AdminUserItem>(`/admin/users/${userId}`, "PUT", payload);
@@ -485,6 +529,29 @@ export async function updateUserAdmin(
 
 export async function deleteUserAdmin(userId: string): Promise<void> {
   await apiJsonRequest<void>(`/admin/users/${userId}`, "DELETE");
+}
+
+export async function createDepartmentAdmin(payload: {
+  code: string;
+  name: string;
+  parent_id?: number | null;
+  sort_order?: number;
+  is_active?: boolean;
+}): Promise<DepartmentItem> {
+  return apiJsonRequest<DepartmentItem>("/admin/departments", "POST", payload);
+}
+
+export async function updateDepartmentAdmin(
+  departmentId: string,
+  payload: {
+    code: string;
+    name: string;
+    parent_id?: number | null;
+    sort_order?: number;
+    is_active?: boolean;
+  }
+): Promise<DepartmentItem> {
+  return apiJsonRequest<DepartmentItem>(`/admin/departments/${departmentId}`, "PUT", payload);
 }
 
 export async function getAdminCorsOrigins(): Promise<AdminCorsOrigins> {
@@ -497,4 +564,12 @@ export async function updateAdminCorsOrigins(origins: string[]): Promise<AdminCo
 
 export async function getAdminAuthAudit(limit = 50): Promise<AdminAuthAuditResponse> {
   return apiFetch<AdminAuthAuditResponse>(`/admin/security/auth-audit?limit=${limit}`);
+}
+
+export async function updateMyProfile(payload: ProfilePayload): Promise<void> {
+  await apiJsonRequest<void>("/auth/me/profile", "PUT", payload);
+}
+
+export async function changeMyPassword(payload: { current_password: string; new_password: string }): Promise<void> {
+  await apiJsonRequest<void>("/auth/me/password", "POST", payload);
 }

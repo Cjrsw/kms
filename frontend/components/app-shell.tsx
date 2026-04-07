@@ -19,7 +19,7 @@ const navigationItems: NavigationItem[] = [
   { href: "/repositories", label: "知识仓库", matchers: ["/repositories"], icon: Database },
   { href: "/search", label: "全文检索", matchers: ["/search"], icon: Search },
   { href: "/qa", label: "知识问答", matchers: ["/qa"], icon: MessageSquare },
-  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard, requiredRoles: ["platform_admin", "repo_admin"] }
+  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard, requiredRoles: ["admin"] }
 ];
 
 type AppShellProps = {
@@ -124,12 +124,14 @@ export function AppShell({ title, description, children, contentClassName, curre
           >
             <Bell className={clsx("h-5 w-5", collapsed ? "" : "mr-3")} />
             {!collapsed && <span className="truncate text-sm font-medium">通知</span>}
-            <span
-              className={clsx(
-                "absolute h-2 w-2 rounded-full bg-red-500",
-                collapsed ? "right-6 top-2" : "right-3 top-2"
-              )}
-            />
+            {currentUser.need_password_change ? (
+              <span
+                className={clsx(
+                  "absolute h-2 w-2 rounded-full bg-red-500",
+                  collapsed ? "right-6 top-2" : "right-3 top-2"
+                )}
+              />
+            ) : null}
           </button>
 
           <div className="group relative cursor-pointer">
@@ -166,8 +168,8 @@ export function AppShell({ title, description, children, contentClassName, curre
                 <p className="truncate text-xs text-gray-500">{currentUser.email}</p>
               </div>
               <div className="space-y-1 p-2">
-                <MenuButton icon={<User className="h-4 w-4" />} label="个人中心" />
-                {currentUser.role_codes.some((roleCode) => ["platform_admin", "repo_admin"].includes(roleCode)) ? (
+                <MenuButton icon={<User className="h-4 w-4" />} label="个人中心" href="/profile" />
+                {currentUser.role_codes.includes("admin") ? (
                   <MenuButton icon={<Settings className="h-4 w-4" />} label="后台系统" href="/admin" />
                 ) : null}
                 <MenuButton icon={<Info className="h-4 w-4" />} label={`密级 L${currentUser.clearance_level}`} />
