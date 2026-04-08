@@ -281,6 +281,30 @@ export async function createNoteUser(
   return (await response.json()) as NoteDetail;
 }
 
+export async function createFolderUser(
+  repositorySlug: string,
+  payload: { name: string; parent_id?: number | null; min_clearance_level?: number }
+): Promise<{ id: number; name: string; parent_id: number | null; clearance_level: number }> {
+  const token = await getRequiredAccessToken();
+  const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/folders`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    redirect("/logout");
+  }
+  if (!response.ok) {
+    throw new Error(`API request failed: create folder in ${repositorySlug}`);
+  }
+  return (await response.json()) as { id: number; name: string; parent_id: number | null; clearance_level: number };
+}
+
 export async function updateNote(
   repositorySlug: string,
   noteId: string,

@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import {
   Folder, FileText, ChevronRight, FolderPlus,
@@ -10,9 +9,7 @@ import {
 
 import { AppShell } from "../../../components/app-shell";
 import { requireCurrentUser } from "../../../lib/auth";
-
-// 环境变量获取，确保服务端获取数据能命中正确的后端地址
-const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { createFolderUser, createNoteUser, getRepository } from "../../../lib/api";
 
 // 工具函数：利用 URL SearchParams 无缝更新 UI 状态 (模态框、当前目录等)
 const buildQuery = (current: any, updates: Record<string, string | number | null>) => {
@@ -40,29 +37,14 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
   const errorMessage = query?.error; // 后端返回的错误提示
 
   const currentUser = await requireCurrentUser();
-  const cookieStore = await cookies();
-  const token = cookieStore.get("token")?.value || cookieStore.get("access_token")?.value || "";
-
-  // 动态计算用户能够分配的最高密级（不能超过自己的密级）
-  const userClearance = currentUser?.clearance_level || 1;
-  const clearanceOptions = [
-    { value: 1, label: "L1 (基础与公开)" },
-    { value: 2, label: "L2 (内部资料)" },
-    { value: 3, label: "L3 (核心机密)" },
-    { value: 4, label: "L4 (绝密档案)" }
-  ].filter(opt => opt.value <= userClearance);
 
   // 获取当前仓库、目录和笔记内容
-  const res = await fetch(`${API_URL}/api/v1/repositories/${repoId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store'
-  });
-
-  if (!res.ok) {
-     redirect("/repositories");
+  let repository: Awaited<ReturnType<typeof getRepository>>;
+  try {
+    repository = await getRepository(repoId);
+  } catch {
+    redirect("/repositories");
   }
-
-  const repository = await res.json();
   const folders = repository.folders || [];
   const notes = repository.notes || [];
 
@@ -83,6 +65,25 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
 
   const folderTree = buildFolderTree(folders);
   const currentFolder = currentFolderId ? folders.find((f: any) => f.id === currentFolderId) : null;
+  const actionParentFolderId = actionParentId ? Number(actionParentId) : null;
+  const actionParentFolder = actionParentFolderId ? folders.find((f: any) => f.id === actionParentFolderId) : null;
+  const rootNotes = notes.filter((n: any) => !n.folder_id);
+
+  // 动态计算用户能够分配的最高密级（不能超过自己的密级）
+  const userClearance = currentUser?.clearance_level || 1;
+  const minAllowedClearance =
+    actionCreate
+      ? Math.max(
+          repository.min_clearance_level || 1,
+          actionParentFolder?.clearance_level || 1
+        )
+      : (repository.min_clearance_level || 1);
+  const clearanceOptions = [
+    { value: 1, label: "L1 (基础与公开)" },
+    { value: 2, label: "L2 (内部资料)" },
+    { value: 3, label: "L3 (核心机密)" },
+    { value: 4, label: "L4 (绝密档案)" }
+  ].filter(opt => opt.value >= minAllowedClearance && opt.value <= userClearance);
 
   // 过滤出要在右侧展示的笔记
   const displayedNotes = notes.filter((n: any) =>
@@ -92,11 +93,15 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
   // 面包屑导航生成器
   const getBreadcrumbs = (folderId: number | null) => {
      if (!folderId) return [];
-     const crumbs = [];
-     let curr = folders.find((f: any) => f.id === folderId);
+     const crumbs: any[] = [];
+     let curr: any | undefined = folders.find((f: any) => f.id === folderId);
      while (curr) {
         crumbs.unshift(curr);
-        curr = folders.find((f: any) => f.id === curr.parent_id);
+        const parentId = curr.parent_id;
+        if (!parentId) {
+          break;
+        }
+        curr = folders.find((f: any) => f.id === parentId);
      }
      return crumbs;
   };
@@ -108,61 +113,51 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
 
   async function handleCreateFolder(formData: FormData) {
     "use server";
-    const cStore = await cookies();
-    const t = cStore.get("token")?.value || cStore.get("access_token")?.value || "";
     const pId = formData.get("parent_id") as string;
 
-    const response = await fetch(`${API_URL}/api/v1/repositories/${repoId}/folders`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
-      body: JSON.stringify({
-        name: formData.get("name"),
+    try {
+      await createFolderUser(repoId, {
+        name: String(formData.get("name") ?? ""),
         parent_id: pId ? Number(pId) : null,
-        min_clearance_level: Number(formData.get("min_clearance_level") || 1)
-      })
-    });
-
-    if (!response.ok) {
-       const err = await response.json().catch(()=>({}));
-       const msg = err.detail || "操作失败，可能由于权限不足";
-       // 创建失败，将错误信息通过 URL 抛回给模态框显示
-       redirect(`/repositories/${repoId}?create=folder&parent=${pId || ''}&error=${encodeURIComponent(msg)}`);
+        min_clearance_level: Number(formData.get("min_clearance_level") || 1),
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "操作失败，可能由于权限不足";
+      redirect(`/repositories/${repoId}?create=folder&parent=${pId || ""}&error=${encodeURIComponent(msg)}`);
     }
 
     revalidatePath(`/repositories/${repoId}`);
-    redirect(`/repositories/${repoId}${currentFolderId ? `?folder=${currentFolderId}` : ''}`);
+    redirect(`/repositories/${repoId}${currentFolderId ? `?folder=${currentFolderId}` : ""}`);
   }
 
   async function handleCreateNote(formData: FormData) {
     "use server";
-    const cStore = await cookies();
-    const t = cStore.get("token")?.value || cStore.get("access_token")?.value || "";
     const fId = formData.get("folder_id") as string;
 
-    const response = await fetch(`${API_URL}/api/v1/repositories/${repoId}/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
-      body: JSON.stringify({
-        title: formData.get("title"),
+    try {
+      await createNoteUser(repoId, {
+        title: String(formData.get("title") ?? ""),
         folder_id: fId ? Number(fId) : null,
         content_text: "",
-        min_clearance_level: Number(formData.get("min_clearance_level") || 1)
-      })
-    });
-
-    if (!response.ok) {
-       const err = await response.json().catch(()=>({}));
-       const msg = err.detail || "操作失败，可能由于权限不足";
-       // 创建失败，将错误信息通过 URL 抛回给模态框显示
-       redirect(`/repositories/${repoId}?create=note&parent=${fId || ''}&error=${encodeURIComponent(msg)}`);
+        min_clearance_level: Number(formData.get("min_clearance_level") || 1),
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "操作失败，可能由于权限不足";
+      redirect(`/repositories/${repoId}?create=note&parent=${fId || ""}&error=${encodeURIComponent(msg)}`);
     }
 
     revalidatePath(`/repositories/${repoId}`);
-    redirect(`/repositories/${repoId}${currentFolderId ? `?folder=${currentFolderId}` : ''}`);
+    // 创建笔记后应落在触发创建的目录视图里，否则用户会误以为“没归属”
+    redirect(`/repositories/${repoId}${fId ? `?folder=${Number(fId)}` : ""}`);
   }
 
   return (
-    <AppShell contentClassName="p-0 bg-white" currentUser={currentUser} title={repository.name}>
+    <AppShell
+      contentClassName="p-0 bg-white"
+      currentUser={currentUser}
+      title={repository.name}
+      description="仓库详情页：目录树与笔记列表，支持按权限创建目录与笔记。"
+    >
       <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden relative">
 
         {/* 当侧边栏被收起时显示的控制按钮 */}
@@ -192,9 +187,6 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                 <Link href={buildQuery(query, { create: 'folder', parent: null, error: null })} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="新建根目录">
                   <FolderPlus className="w-4 h-4"/>
                 </Link>
-                <Link href={buildQuery(query, { create: 'note', parent: null, error: null })} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors" title="新建根笔记">
-                  <FilePlus className="w-4 h-4"/>
-                </Link>
                 <Link href={buildQuery(query, { sidebar: 'hidden' })} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors ml-1" title="收起侧边栏">
                   <PanelLeftClose className="w-4 h-4" />
                 </Link>
@@ -210,10 +202,36 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
               ) : (
                 <div className="space-y-0.5">
                   {folderTree.map(node => (
-                    <FolderNode key={node.id} node={node} currentFolderId={currentFolderId} query={query} buildQuery={buildQuery} />
+                    <FolderNode
+                      key={node.id}
+                      node={node}
+                      notes={notes}
+                      currentFolderId={currentFolderId}
+                      query={query}
+                      buildQuery={buildQuery}
+                      repoId={repoId}
+                    />
                   ))}
                 </div>
               )}
+
+              {rootNotes.length ? (
+                <div className="mt-4 border-t border-slate-200 pt-3">
+                  <p className="mb-2 px-1 text-xs font-semibold text-slate-500">根目录笔记</p>
+                  <div className="space-y-1">
+                    {rootNotes.map((note: any) => (
+                      <Link
+                        key={note.id}
+                        href={`/repositories/${repoId}/notes/${note.id}`}
+                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white hover:text-blue-700"
+                      >
+                        <FileText className="h-4 w-4 text-slate-400" />
+                        <span className="truncate">{note.title}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
@@ -241,12 +259,6 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                <h1 className="text-2xl lg:text-3xl font-extrabold text-slate-900 tracking-tight">
                  {currentFolder ? currentFolder.name : "根目录内容"}
                </h1>
-               <Link
-                 href={buildQuery(query, { create: 'note', parent: currentFolderId, error: null })}
-                 className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 font-semibold rounded-xl hover:bg-emerald-100 transition-all active:scale-95"
-               >
-                 <FilePlus className="w-4 h-4" /> 快速笔记
-               </Link>
              </div>
 
              {/* 笔记网格 */}
@@ -272,7 +284,7 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                                  <FileText className="w-5 h-5" />
                               </div>
                               <span className="text-[10px] font-bold px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg uppercase border border-slate-200">
-                                 权限 L{note.min_clearance_level}
+                                 权限 L{note.clearance_level}
                               </span>
                            </div>
                            <h3 className="text-lg font-bold text-slate-900 mb-3 group-hover:text-blue-600 transition-colors line-clamp-2 leading-snug">
@@ -331,7 +343,11 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">设置访问密级 (受限于您的权限等级)</label>
-                <select name="min_clearance_level" defaultValue="1" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 bg-white">
+                <select
+                  name="min_clearance_level"
+                  defaultValue={String(Math.min(userClearance, minAllowedClearance))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 bg-white"
+                >
                   {clearanceOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
@@ -357,8 +373,23 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
 // ==========================================
 // 辅助组件：递归渲染每一层目录树 (Server Component)
 // ==========================================
-function FolderNode({ node, currentFolderId, query, buildQuery }: { node: any, currentFolderId: number | null, query: any, buildQuery: Function }) {
+function FolderNode({
+  node,
+  notes,
+  currentFolderId,
+  query,
+  buildQuery,
+  repoId,
+}: {
+  node: any;
+  notes: any[];
+  currentFolderId: number | null;
+  query: any;
+  buildQuery: Function;
+  repoId: string;
+}) {
   const isSelected = currentFolderId === node.id;
+  const childNotes = notes.filter((note: any) => note.folder_id === node.id);
 
   return (
     <details className="group/details" open>
@@ -391,10 +422,33 @@ function FolderNode({ node, currentFolderId, query, buildQuery }: { node: any, c
       {node.children && node.children.length > 0 && (
         <div className="pl-3 ml-2.5 mt-0.5 border-l border-slate-200 space-y-0.5">
            {node.children.map((child: any) => (
-              <FolderNode key={child.id} node={child} currentFolderId={currentFolderId} query={query} buildQuery={buildQuery} />
+              <FolderNode
+                key={child.id}
+                node={child}
+                notes={notes}
+                currentFolderId={currentFolderId}
+                query={query}
+                buildQuery={buildQuery}
+                repoId={repoId}
+              />
            ))}
         </div>
       )}
+
+      {childNotes.length ? (
+        <div className="mt-1 space-y-0.5 pl-7">
+          {childNotes.map((note: any) => (
+            <Link
+              key={note.id}
+              href={`/repositories/${repoId}/notes/${note.id}`}
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white hover:text-blue-700"
+            >
+              <FileText className="h-4 w-4 text-slate-400" />
+              <span className="truncate">{note.title}</span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
     </details>
   );
 }

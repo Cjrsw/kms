@@ -29,6 +29,14 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
     notFound();
   }
 
+  let renderedHtml = "";
+  try {
+    const parsed = note.content_json ? JSON.parse(note.content_json) : null;
+    renderedHtml = parsed ? generateHTML(parsed, [StarterKit]) : "";
+  } catch {
+    renderedHtml = "";
+  }
+
   return (
     <AppShell
       currentUser={currentUser}
@@ -103,13 +111,19 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
               </div>
             </div>
 
-            <article className="prose max-w-none text-[15px] leading-8 text-gray-800 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
-              <div
-                dangerouslySetInnerHTML={{
-                  __html: generateHTML(JSON.parse(note.content_json || "{}"), [StarterKit]),
-                }}
-              />
-            </article>
+            {renderedHtml ? (
+              <article className="prose max-w-none text-[15px] leading-8 text-gray-800 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: renderedHtml,
+                  }}
+                />
+              </article>
+            ) : (
+              <article className="whitespace-pre-wrap text-[15px] leading-8 text-gray-700">
+                {note.content_text || "（正文为空）"}
+              </article>
+            )}
 
             <div className="mt-10 border-t border-gray-100 pt-6">
               <h3 className="mb-4 text-sm font-bold text-gray-800">笔记附件</h3>

@@ -219,33 +219,37 @@ def create_note_user(
     if repository.min_clearance_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Repository access denied.")
 
+    folder: Folder | None = None
     if payload.folder_id is not None:
         folder = db.query(Folder).filter(Folder.id == payload.folder_id).first()
         if folder is None or folder.repository_id != repository.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Folder is outside repository.")
 
-    desired_level = payload.min_clearance_level or repository.min_clearance_level
-    desired_level = max(desired_level, repository.min_clearance_level)
+    min_allowed_level = repository.min_clearance_level
+    if folder is not None:
+        min_allowed_level = max(min_allowed_level, folder.min_clearance_level)
+
+    # 用户创建笔记时，前端应只允许选择 >= 当前目录密级的值；
+    # 后端这里做强校验，避免绕过前端导致“自动抬升”造成误解。
+    if payload.min_clearance_level is not None and payload.min_clearance_level < min_allowed_level:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Note clearance must be >= L{min_allowed_level}.",
+        )
+
+    desired_level = payload.min_clearance_level or min_allowed_level
     if desired_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clearance insufficient for this note.")
 
     content_text = (payload.content_text or "").strip()
-    content_json = (
-        payload.content_json.strip()
-        if payload.content_json
-        else json.dumps(
-            {
-                "type": "doc",
-                "content": [
-                    {
-                        "type": "paragraph",
-                        "content": [{"type": "text", "text": content_text}],
-                    }
-                ],
-            },
-            ensure_ascii=False,
-        )
-    )
+    if payload.content_json and payload.content_json.strip():
+        content_json = payload.content_json.strip()
+    else:
+        # TipTap 不允许空文本节点（text=""），这里用空段落承载“空正文”
+        paragraph: dict[str, object] = {"type": "paragraph"}
+        if content_text:
+            paragraph["content"] = [{"type": "text", "text": content_text}]
+        content_json = json.dumps({"type": "doc", "content": [paragraph]}, ensure_ascii=False)
 
     note = Note(
         repository_id=repository.id,
@@ -293,6 +297,7 @@ def create_folder_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Repository access denied.")
 
     # 2. 检验父目录是否存在及权限
+    parent_folder: Folder | None = None
     if payload.parent_id is not None:
         parent_folder = db.query(Folder).filter(Folder.id == payload.parent_id).first()
         if parent_folder is None or parent_folder.repository_id != repository.id:
@@ -301,8 +306,10 @@ def create_folder_user(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parent folder access denied.")
 
     # 3. 检验创建的新目录密级是否越权
-    desired_level = payload.min_clearance_level or repository.min_clearance_level
+    desired_level = payload.min_clearance_level or (parent_folder.min_clearance_level if parent_folder else repository.min_clearance_level)
     desired_level = max(desired_level, repository.min_clearance_level)
+    if parent_folder is not None:
+        desired_level = max(desired_level, parent_folder.min_clearance_level)
     if desired_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clearance insufficient for this folder.")
 
