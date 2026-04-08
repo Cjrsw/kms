@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session, selectinload
-
+from pydantic import BaseModel
 from app.core.deps import get_current_user
 from app.db.session import get_db
 from app.models.content import Attachment, Folder, Note, Repository
@@ -272,7 +272,57 @@ def create_note_user(
         attachments=[],
     )
 
+class FolderCreateRequest(BaseModel):
+    name: str
+    parent_id: int | None = None
+    min_clearance_level: int | None = None
 
+@router.post("/{repository_slug}/folders", response_model=FolderItem, status_code=status.HTTP_201_CREATED)
+def create_folder_user(
+    repository_slug: str,
+    payload: FolderCreateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FolderItem:
+    # 1. 检验仓库是否存在及权限
+    repository = db.query(Repository).filter(Repository.slug == repository_slug).first()
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
+
+    if repository.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Repository access denied.")
+
+    # 2. 检验父目录是否存在及权限
+    if payload.parent_id is not None:
+        parent_folder = db.query(Folder).filter(Folder.id == payload.parent_id).first()
+        if parent_folder is None or parent_folder.repository_id != repository.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Parent folder is invalid.")
+        if parent_folder.min_clearance_level > user.clearance_level:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Parent folder access denied.")
+
+    # 3. 检验创建的新目录密级是否越权
+    desired_level = payload.min_clearance_level or repository.min_clearance_level
+    desired_level = max(desired_level, repository.min_clearance_level)
+    if desired_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clearance insufficient for this folder.")
+
+    # 4. 插入数据库
+    folder = Folder(
+        repository_id=repository.id,
+        name=payload.name.strip(),
+        parent_id=payload.parent_id,
+        min_clearance_level=desired_level,
+    )
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+
+    return FolderItem(
+        id=folder.id,
+        name=folder.name,
+        parent_id=folder.parent_id,
+        clearance_level=folder.min_clearance_level,
+    )
 @router.post("/{repository_slug}/notes/{note_id}/attachments", response_model=AttachmentItem, status_code=status.HTTP_201_CREATED)
 async def upload_attachment(
     repository_slug: str,
