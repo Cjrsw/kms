@@ -1,20 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
-
 import { getSessionToken } from "../../../../../../../../lib/auth";
 import { API_BASE_URL } from "../../../../../../../../lib/config";
 
 export async function GET(
-  request: NextRequest,
+  _request: Request,
   {
     params,
   }: {
     params: Promise<{ repoId: string; noteId: string; attachmentId: string }>;
   },
-): Promise<NextResponse> {
+): Promise<Response> {
   const { repoId, noteId, attachmentId } = await params;
   const token = await getSessionToken();
   if (!token) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: "/login",
+      },
+    });
   }
 
   const response = await fetch(
@@ -26,22 +29,41 @@ export async function GET(
   );
 
   if (response.status === 401) {
-    return NextResponse.redirect(new URL("/logout", request.url));
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: "/logout",
+      },
+    });
   }
   if (response.status === 403) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: "/login",
+      },
+    });
   }
 
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     if (location) {
-      return NextResponse.redirect(location);
+      return new Response(null, {
+        status: 307,
+        headers: {
+          Location: location,
+        },
+      });
     }
   }
 
-  // Fallback: stream the response
-  return new NextResponse(response.body, {
+  return new Response(response.body, {
     status: response.status,
-    headers: response.headers,
+    headers: {
+      "Content-Type": response.headers.get("content-type") ?? "application/octet-stream",
+      ...(response.headers.get("content-disposition")
+        ? { "Content-Disposition": response.headers.get("content-disposition") as string }
+        : {}),
+    },
   });
 }

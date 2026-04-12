@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class NoteListItem(BaseModel):
     id: int
     title: str
+    folder_id: int | None
     clearance_level: int
     updated_at: str
     attachment_count: int

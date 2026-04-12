@@ -252,7 +252,13 @@ def create_note(
     if repository is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
 
-    _validate_note_folder(db, repository.id, payload.folder_id)
+    folder = _validate_note_folder(db, repository.id, payload.folder_id)
+    min_note_level = _calculate_min_note_clearance(repository.min_clearance_level, folder)
+    if payload.min_clearance_level < min_note_level:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Note clearance must be >= L{min_note_level}.",
+        )
     note = Note(
         repository_id=repository.id,
         folder_id=payload.folder_id,
@@ -284,7 +290,18 @@ def update_note(
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found.")
 
-    _validate_note_folder(db, note.repository_id, payload.folder_id)
+    repository = db.query(Repository).filter(Repository.id == note.repository_id).first()
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
+
+    folder = _validate_note_folder(db, note.repository_id, payload.folder_id)
+    min_note_level = _calculate_min_note_clearance(repository.min_clearance_level, folder)
+    if payload.min_clearance_level < min_note_level:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Note clearance must be >= L{min_note_level}.",
+        )
+
     note.folder_id = payload.folder_id
     note.title = payload.title.strip()
     note.content_text = payload.content_text.strip()
@@ -616,13 +633,20 @@ def _get_folder(db: Session, folder_id: int) -> Folder:
     return folder
 
 
-def _validate_note_folder(db: Session, repository_id: int, folder_id: int | None) -> None:
+def _validate_note_folder(db: Session, repository_id: int, folder_id: int | None) -> Folder | None:
     if folder_id is None:
-        return
+        return None
 
     folder = _get_folder(db, folder_id)
     if folder.repository_id != repository_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Folder is outside repository.")
+    return folder
+
+
+def _calculate_min_note_clearance(repository_level: int, folder: Folder | None) -> int:
+    if folder is None:
+        return repository_level
+    return max(repository_level, folder.min_clearance_level)
 
 
 def _serialize_folder(folder: Folder) -> AdminFolderItem:

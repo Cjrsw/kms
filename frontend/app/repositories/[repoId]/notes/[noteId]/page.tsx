@@ -4,6 +4,7 @@ import { generateHTML } from "@tiptap/html";
 import StarterKit from "@tiptap/starter-kit";
 import { notFound } from "next/navigation";
 import { AppShell } from "../../../../../components/app-shell";
+import { AttachmentActions } from "../../../../../components/attachment-actions";
 import { getNote, getRepository } from "../../../../../lib/api";
 import { requireCurrentUser } from "../../../../../lib/auth";
 
@@ -143,22 +144,12 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-shrink-0 gap-2 text-xs">
-                        <a
-                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/preview`}
-                          target="_blank"
-                        >
-                          预览
-                        </a>
-                        <a
-                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
-                          target="_blank"
-                        >
-                          下载
-                        </a>
-                      </div>
+                      <AttachmentActions
+                        repoId={repoId}
+                        noteId={noteId}
+                        attachmentId={attachment.id}
+                        fileType={attachment.file_type}
+                      />
                     </div>
                   ))}
                 </div>

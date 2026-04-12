@@ -4,12 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import {
   Folder, FileText, ChevronRight, FolderPlus,
-  FilePlus, Layers3, X, FilePenLine, PanelLeftClose, PanelLeft, AlertCircle
+  FilePlus, Layers3, X, FilePenLine, PanelLeftClose, PanelLeft, AlertCircle, Trash2
 } from "lucide-react";
 
 import { AppShell } from "../../../components/app-shell";
 import { requireCurrentUser } from "../../../lib/auth";
-import { createFolderUser, createNoteUser, getRepository } from "../../../lib/api";
+import { createFolderUser, createNoteUser, deleteFolderUser, deleteNoteUser, getRepository } from "../../../lib/api";
 
 // 工具函数：利用 URL SearchParams 无缝更新 UI 状态 (模态框、当前目录等)
 const buildQuery = (current: any, updates: Record<string, string | number | null>) => {
@@ -85,7 +85,10 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
     { value: 4, label: "L4 (绝密档案)" }
   ].filter(opt => opt.value >= minAllowedClearance && opt.value <= userClearance);
 
-  // 过滤出要在右侧展示的笔记
+  // 过滤出要在右侧展示的目录与笔记
+  const displayedFolders = folders.filter((f: any) =>
+     currentFolderId ? f.parent_id === currentFolderId : !f.parent_id
+  );
   const displayedNotes = notes.filter((n: any) =>
      currentFolderId ? n.folder_id === currentFolderId : !n.folder_id
   );
@@ -151,6 +154,51 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
     redirect(`/repositories/${repoId}${fId ? `?folder=${Number(fId)}` : ""}`);
   }
 
+  async function handleDeleteFolder(formData: FormData) {
+    "use server";
+    const folderId = Number(String(formData.get("folder_id") ?? "").trim());
+    if (!Number.isFinite(folderId)) {
+      redirect(`/repositories/${repoId}?error=${encodeURIComponent("目录删除失败：缺少目录ID")}`);
+    }
+
+    try {
+      await deleteFolderUser(repoId, folderId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "目录删除失败，可能由于权限不足。";
+      const querySuffix = currentFolderId
+        ? `?folder=${currentFolderId}&error=${encodeURIComponent(msg)}`
+        : `?error=${encodeURIComponent(msg)}`;
+      redirect(`/repositories/${repoId}${querySuffix}`);
+    }
+
+    revalidatePath(`/repositories/${repoId}`);
+    if (currentFolderId === folderId) {
+      redirect(`/repositories/${repoId}`);
+    }
+    redirect(`/repositories/${repoId}${currentFolderId ? `?folder=${currentFolderId}` : ""}`);
+  }
+
+  async function handleDeleteNote(formData: FormData) {
+    "use server";
+    const noteId = Number(String(formData.get("note_id") ?? "").trim());
+    if (!Number.isFinite(noteId)) {
+      redirect(`/repositories/${repoId}?error=${encodeURIComponent("笔记删除失败：缺少笔记ID")}`);
+    }
+
+    try {
+      await deleteNoteUser(repoId, noteId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "笔记删除失败，可能由于权限不足。";
+      const querySuffix = currentFolderId
+        ? `?folder=${currentFolderId}&error=${encodeURIComponent(msg)}`
+        : `?error=${encodeURIComponent(msg)}`;
+      redirect(`/repositories/${repoId}${querySuffix}`);
+    }
+
+    revalidatePath(`/repositories/${repoId}`);
+    redirect(`/repositories/${repoId}${currentFolderId ? `?folder=${currentFolderId}` : ""}`);
+  }
+
   return (
     <AppShell
       contentClassName="p-0 bg-white"
@@ -210,6 +258,8 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                       query={query}
                       buildQuery={buildQuery}
                       repoId={repoId}
+                      onDeleteFolder={handleDeleteFolder}
+                      onDeleteNote={handleDeleteNote}
                     />
                   ))}
                 </div>
@@ -220,14 +270,22 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                   <p className="mb-2 px-1 text-xs font-semibold text-slate-500">根目录笔记</p>
                   <div className="space-y-1">
                     {rootNotes.map((note: any) => (
-                      <Link
-                        key={note.id}
-                        href={`/repositories/${repoId}/notes/${note.id}`}
-                        className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white hover:text-blue-700"
-                      >
-                        <FileText className="h-4 w-4 text-slate-400" />
-                        <span className="truncate">{note.title}</span>
-                      </Link>
+                      <div key={note.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white">
+                        <Link href={`/repositories/${repoId}/notes/${note.id}`} className="flex min-w-0 flex-1 items-center gap-2 hover:text-blue-700">
+                          <FileText className="h-4 w-4 text-slate-400" />
+                          <span className="truncate">{note.title}</span>
+                        </Link>
+                        <form action={handleDeleteNote}>
+                          <input type="hidden" name="note_id" value={note.id} />
+                          <button
+                            type="submit"
+                            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="删除笔记"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </form>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -261,43 +319,81 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                </h1>
              </div>
 
-             {/* 笔记网格 */}
-             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-               {displayedNotes.length === 0 ? (
-                  <div className="col-span-full py-24 text-center border-2 border-dashed border-slate-100 rounded-3xl bg-slate-50/50">
-                    <FilePenLine className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-                    <p className="text-slate-500 font-medium">该区域暂无笔记</p>
-                    <p className="text-sm text-slate-400 mt-1 mb-4">记录灵感，沉淀知识，从这里开始</p>
-                    <Link
-                      href={buildQuery(query, { create: 'note', parent: currentFolderId, error: null })}
-                      className="inline-flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-all shadow-sm active:scale-95"
-                    >
-                      <FilePlus className="w-4 h-4"/> 立即创建一篇
-                    </Link>
-                  </div>
-               ) : (
-                  displayedNotes.map((note: any) => (
-                     <Link key={note.id} href={`/repositories/${repository.slug}/notes/${note.id}`} className="block group">
+             {/* 当前目录下的“子目录 + 笔记”内容网格 */}
+              {errorMessage && !actionCreate && (
+                <div className="mb-6 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+               <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                {displayedFolders.length === 0 && displayedNotes.length === 0 ? (
+                   <div className="col-span-full py-24 text-center border-2 border-dashed border-slate-100 rounded-3xl bg-slate-50/50">
+                     <FilePenLine className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                     <p className="text-slate-500 font-medium">该目录下暂无内容</p>
+                     <p className="text-sm text-slate-400 mt-1 mb-4">可以先创建子目录或笔记</p>
+                     <div className="flex items-center justify-center gap-2">
+                       <Link
+                         href={buildQuery(query, { create: 'folder', parent: currentFolderId, error: null })}
+                         className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-sm active:scale-95"
+                       >
+                         <FolderPlus className="w-4 h-4"/> 新建目录
+                       </Link>
+                       <Link
+                         href={buildQuery(query, { create: 'note', parent: currentFolderId, error: null })}
+                         className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-all shadow-sm active:scale-95"
+                       >
+                         <FilePlus className="w-4 h-4"/> 新建笔记
+                       </Link>
+                     </div>
+                   </div>
+                ) : (
+                  <>
+                    {displayedFolders.map((folder: any) => (
+                      <Link key={`folder-${folder.id}`} href={buildQuery(query, { folder: folder.id })} className="block group">
                         <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-blue-200 transition-all h-full flex flex-col">
-                           <div className="flex items-start justify-between mb-4">
-                              <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl group-hover:scale-110 group-hover:bg-emerald-100 transition-all">
-                                 <FileText className="w-5 h-5" />
-                              </div>
-                              <span className="text-[10px] font-bold px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg uppercase border border-slate-200">
-                                 权限 L{note.clearance_level}
-                              </span>
-                           </div>
-                           <h3 className="text-lg font-bold text-slate-900 mb-3 group-hover:text-blue-600 transition-colors line-clamp-2 leading-snug">
-                             {note.title}
-                           </h3>
-                           <p className="text-xs font-medium text-slate-400 mt-auto pt-4 border-t border-slate-50">
-                              最后更新 · {new Date(note.updated_at).toLocaleDateString()}
-                           </p>
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-110 group-hover:bg-blue-100 transition-all">
+                              <Folder className="w-5 h-5" />
+                            </div>
+                            <span className="text-[10px] font-bold px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg uppercase border border-slate-200">
+                              权限 L{folder.clearance_level}
+                            </span>
+                          </div>
+                          <h3 className="text-lg font-bold text-slate-900 mb-3 group-hover:text-blue-600 transition-colors line-clamp-2 leading-snug">
+                            {folder.name}
+                          </h3>
+                          <p className="text-xs font-medium text-slate-400 mt-auto pt-4 border-t border-slate-50">
+                            目录
+                          </p>
                         </div>
-                     </Link>
-                  ))
-               )}
-             </div>
+                      </Link>
+                    ))}
+
+                    {displayedNotes.map((note: any) => (
+                        <Link key={`note-${note.id}`} href={`/repositories/${repository.slug}/notes/${note.id}`} className="block group">
+                          <div className="p-6 rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-blue-200 transition-all h-full flex flex-col">
+                              <div className="flex items-start justify-between mb-4">
+                                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl group-hover:scale-110 group-hover:bg-emerald-100 transition-all">
+                                    <FileText className="w-5 h-5" />
+                                </div>
+                                <span className="text-[10px] font-bold px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg uppercase border border-slate-200">
+                                    权限 L{note.clearance_level}
+                                </span>
+                              </div>
+                              <h3 className="text-lg font-bold text-slate-900 mb-3 group-hover:text-blue-600 transition-colors line-clamp-2 leading-snug">
+                                {note.title}
+                              </h3>
+                              <p className="text-xs font-medium text-slate-400 mt-auto pt-4 border-t border-slate-50">
+                                最后更新 · {new Date(note.updated_at).toLocaleDateString()}
+                              </p>
+                          </div>
+                        </Link>
+                    ))}
+                  </>
+                )}
+              </div>
+
            </div>
         </div>
       </div>
@@ -380,6 +476,8 @@ function FolderNode({
   query,
   buildQuery,
   repoId,
+  onDeleteFolder,
+  onDeleteNote,
 }: {
   node: any;
   notes: any[];
@@ -387,6 +485,8 @@ function FolderNode({
   query: any;
   buildQuery: Function;
   repoId: string;
+  onDeleteFolder: (formData: FormData) => Promise<void>;
+  onDeleteNote: (formData: FormData) => Promise<void>;
 }) {
   const isSelected = currentFolderId === node.id;
   const childNotes = notes.filter((note: any) => note.folder_id === node.id);
@@ -409,6 +509,16 @@ function FolderNode({
 
         {/* 具体目录上的创建快捷按钮 (悬停可见) */}
         <div className="opacity-0 group-hover/summary:opacity-100 flex items-center gap-0.5 px-1 transition-opacity">
+           <form action={onDeleteFolder}>
+             <input type="hidden" name="folder_id" value={node.id} />
+             <button
+               type="submit"
+               className="p-1.5 hover:bg-red-50 rounded-md text-slate-400 hover:text-red-600 transition-colors"
+               title="删除目录"
+             >
+               <Trash2 className="h-3.5 w-3.5"/>
+             </button>
+           </form>
            <Link href={buildQuery(query, { create: 'folder', parent: node.id, error: null })} className="p-1.5 hover:bg-slate-200 rounded-md text-slate-400 hover:text-blue-600 transition-colors" title="在此目录下新建子目录">
              <FolderPlus className="h-3.5 w-3.5"/>
            </Link>
@@ -430,6 +540,8 @@ function FolderNode({
                 query={query}
                 buildQuery={buildQuery}
                 repoId={repoId}
+                onDeleteFolder={onDeleteFolder}
+                onDeleteNote={onDeleteNote}
               />
            ))}
         </div>
@@ -438,14 +550,25 @@ function FolderNode({
       {childNotes.length ? (
         <div className="mt-1 space-y-0.5 pl-7">
           {childNotes.map((note: any) => (
-            <Link
-              key={note.id}
-              href={`/repositories/${repoId}/notes/${note.id}`}
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white hover:text-blue-700"
-            >
-              <FileText className="h-4 w-4 text-slate-400" />
-              <span className="truncate">{note.title}</span>
-            </Link>
+            <div key={note.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 transition-colors hover:bg-white">
+              <Link
+                href={`/repositories/${repoId}/notes/${note.id}`}
+                className="flex min-w-0 flex-1 items-center gap-2 hover:text-blue-700"
+              >
+                <FileText className="h-4 w-4 text-slate-400" />
+                <span className="truncate">{note.title}</span>
+              </Link>
+              <form action={onDeleteNote}>
+                <input type="hidden" name="note_id" value={note.id} />
+                <button
+                  type="submit"
+                  className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  title="删除笔记"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </form>
+            </div>
           ))}
         </div>
       ) : null}

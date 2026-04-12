@@ -38,6 +38,7 @@ export type RepositoryDetail = {
   notes: Array<{
     id: number;
     title: string;
+    folder_id: number | null;
     clearance_level: number;
     updated_at: string;
     attachment_count: number;
@@ -281,6 +282,24 @@ export async function createNoteUser(
   return (await response.json()) as NoteDetail;
 }
 
+export async function deleteNoteUser(repositorySlug: string, noteId: number): Promise<void> {
+  const token = await getRequiredAccessToken();
+  const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/notes/${noteId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    redirect("/logout");
+  }
+  if (!response.ok) {
+    throw new Error(`API request failed: delete note ${noteId}`);
+  }
+}
+
 export async function createFolderUser(
   repositorySlug: string,
   payload: { name: string; parent_id?: number | null; min_clearance_level?: number }
@@ -303,6 +322,24 @@ export async function createFolderUser(
     throw new Error(`API request failed: create folder in ${repositorySlug}`);
   }
   return (await response.json()) as { id: number; name: string; parent_id: number | null; clearance_level: number };
+}
+
+export async function deleteFolderUser(repositorySlug: string, folderId: number): Promise<void> {
+  const token = await getRequiredAccessToken();
+  const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/folders/${folderId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    redirect("/logout");
+  }
+  if (!response.ok) {
+    throw new Error(`API request failed: delete folder ${folderId}`);
+  }
 }
 
 export async function updateNote(

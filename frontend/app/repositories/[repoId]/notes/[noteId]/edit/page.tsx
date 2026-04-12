@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { UploadCloud } from "lucide-react";
 import { AppShell } from "../../../../../../components/app-shell";
+import { AttachmentActions } from "../../../../../../components/attachment-actions";
 import { NoteEditor } from "../../../../../../components/note-editor";
 import { AttachmentUploader } from "../../../../../../components/attachment-uploader";
 import { getNote } from "../../../../../../lib/api";
@@ -95,20 +96,12 @@ export default async function NoteEditPage({ params }: NoteEditPageProps) {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs">
-                        <a
-                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/preview`}
-                          target="_blank"
-                        >
-                          预览
-                        </a>
-                        <a
-                          className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                          href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachment.id}/download`}
-                          target="_blank"
-                        >
-                          下载
-                        </a>
+                        <AttachmentActions
+                          repoId={repoId}
+                          noteId={noteId}
+                          attachmentId={attachment.id}
+                          fileType={attachment.file_type}
+                        />
                         <form action={deleteAction}>
                           <input name="attachment_id" type="hidden" value={attachment.id} />
                           <button

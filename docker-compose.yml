@@ -5,7 +5,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:9002/api/v1
       KMS_API_BASE_URL: http://backend:8000/api/v1
       KMS_AUTH_COOKIE_SECURE: "false"
     depends_on:
@@ -15,7 +15,7 @@ services:
     build:
       context: ./backend
     ports:
-      - "8000:8000"
+      - "9002:8000"
     env_file:
       - .env
     depends_on:

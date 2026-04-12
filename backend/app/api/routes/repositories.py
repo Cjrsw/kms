@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
+from urllib.parse import quote
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from app.core.deps import get_current_user
@@ -20,12 +21,11 @@ from app.schemas.repository import (
     RepositoryDetailResponse,
     RepositoryListItem,
 )
-from app.services.search import index_note
+from app.services.search import delete_note_document, index_note, rebuild_notes_index
 from app.services.ingestion import extract_attachment_text, upsert_attachment_text
 from app.services.storage import (
     build_attachment_object_key,
-    get_download_url,
-    get_preview_url,
+    get_object_bytes,
     remove_object,
     upload_attachment_bytes,
 )
@@ -33,6 +33,7 @@ from app.services.storage import (
 router = APIRouter()
 ALLOWED_ATTACHMENT_TYPES = {"pdf", "docx"}
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
+ADMIN_ROLE_CODE = "admin"
 
 
 @router.get("", response_model=list[RepositoryListItem])
@@ -96,6 +97,7 @@ def get_repository(
         NoteListItem(
             id=note.id,
             title=note.title,
+            folder_id=note.folder_id,
             clearance_level=note.min_clearance_level,
             updated_at=note.updated_at.isoformat(),
             attachment_count=len(note.attachments),
@@ -330,6 +332,93 @@ def create_folder_user(
         parent_id=folder.parent_id,
         clearance_level=folder.min_clearance_level,
     )
+
+
+@router.delete("/{repository_slug}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note_user(
+    repository_slug: str,
+    note_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    _, note = _get_repository_and_note(db, repository_slug, note_id)
+    _ensure_can_delete_by_clearance(user, note.min_clearance_level)
+
+    object_keys = [attachment.object_key for attachment in note.attachments]
+    deleted_note_id = note.id
+    db.delete(note)
+    db.commit()
+
+    for object_key in object_keys:
+        remove_object(object_key)
+    delete_note_document(deleted_note_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/{repository_slug}/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_folder_user(
+    repository_slug: str,
+    folder_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    repository = db.query(Repository).filter(Repository.slug == repository_slug).first()
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
+    if repository.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Repository access denied.")
+
+    folder = (
+        db.query(Folder)
+        .options(selectinload(Folder.children), selectinload(Folder.notes))
+        .filter(Folder.id == folder_id, Folder.repository_id == repository.id)
+        .first()
+    )
+    if folder is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
+
+    all_folders = db.query(Folder).filter(Folder.repository_id == repository.id).all()
+    descendant_ids = _collect_descendant_folder_ids(folder.id, all_folders)
+
+    is_admin = _is_admin_user(user)
+    if not is_admin:
+        folder_level_violates = any(
+            current_folder.min_clearance_level > user.clearance_level
+            for current_folder in all_folders
+            if current_folder.id in descendant_ids
+        )
+        if folder_level_violates:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Folder access denied.")
+
+    notes_to_delete = (
+        db.query(Note)
+        .options(selectinload(Note.attachments))
+        .filter(
+            Note.repository_id == repository.id,
+            Note.folder_id.in_(descendant_ids),
+        )
+        .all()
+    )
+
+    if not is_admin:
+        for note in notes_to_delete:
+            if note.min_clearance_level > user.clearance_level:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+
+    object_keys: list[str] = []
+    for note in notes_to_delete:
+        object_keys.extend(attachment.object_key for attachment in note.attachments)
+        db.delete(note)
+
+    db.delete(folder)
+    db.commit()
+
+    for object_key in object_keys:
+        remove_object(object_key)
+    rebuild_notes_index(db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/{repository_slug}/notes/{note_id}/attachments", response_model=AttachmentItem, status_code=status.HTTP_201_CREATED)
 async def upload_attachment(
     repository_slug: str,
@@ -391,7 +480,7 @@ def download_attachment(
     attachment_id: int,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
-) -> RedirectResponse:
+) -> Response:
     _, note = _get_repository_and_note(db, repository_slug, note_id)
 
     if note.min_clearance_level > user.clearance_level:
@@ -405,11 +494,18 @@ def download_attachment(
     if attachment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found.")
 
-    download_url = get_download_url(attachment.object_key)
-    if download_url is None:
+    object_bytes = get_object_bytes(attachment.object_key)
+    if object_bytes is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment object not found in storage.")
 
-    return RedirectResponse(url=download_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    filename = quote(attachment.file_name)
+    return Response(
+        content=object_bytes,
+        media_type=_resolve_attachment_media_type(attachment.file_type),
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+        },
+    )
 
 
 @router.get("/{repository_slug}/notes/{note_id}/attachments/{attachment_id}/preview")
@@ -419,7 +515,7 @@ def preview_attachment(
     attachment_id: int,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
-) -> RedirectResponse:
+) -> Response:
     _, note = _get_repository_and_note(db, repository_slug, note_id)
 
     if note.min_clearance_level > user.clearance_level:
@@ -433,11 +529,18 @@ def preview_attachment(
     if attachment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found.")
 
-    preview_url = get_preview_url(attachment.object_key)
-    if preview_url is None:
+    object_bytes = get_object_bytes(attachment.object_key)
+    if object_bytes is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment object not found in storage.")
 
-    return RedirectResponse(url=preview_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    filename = quote(attachment.file_name)
+    return Response(
+        content=object_bytes,
+        media_type=_resolve_attachment_media_type(attachment.file_type),
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
+        },
+    )
 
 
 @router.delete("/{repository_slug}/notes/{note_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -561,3 +664,40 @@ def _get_repository_and_note(db: Session, repository_slug: str, note_id: int) ->
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found.")
 
     return repository, note
+
+
+def _resolve_attachment_media_type(file_type: str) -> str:
+    if file_type == "pdf":
+        return "application/pdf"
+    if file_type == "docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return "application/octet-stream"
+
+
+def _collect_descendant_folder_ids(root_folder_id: int, folders: list[Folder]) -> set[int]:
+    children_map: dict[int, list[int]] = {}
+    for folder in folders:
+        if folder.parent_id is None:
+            continue
+        children_map.setdefault(folder.parent_id, []).append(folder.id)
+
+    visited: set[int] = set()
+    stack = [root_folder_id]
+    while stack:
+        current = stack.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        stack.extend(children_map.get(current, []))
+    return visited
+
+
+def _is_admin_user(user: User) -> bool:
+    return any(user_role.role.code == ADMIN_ROLE_CODE for user_role in user.roles)
+
+
+def _ensure_can_delete_by_clearance(user: User, target_clearance_level: int) -> None:
+    if _is_admin_user(user):
+        return
+    if target_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
