@@ -35,8 +35,15 @@ def answer_question(
             sources=[],
         )
 
-    search_results = search_notes(db=db, user=user, query=normalized_question, repository_slug=repository_slug)
-    top_results = search_results[:3]
+    search_results = search_notes(
+        db=db,
+        user=user,
+        query=normalized_question,
+        repository_slug=repository_slug,
+        page=1,
+        page_size=3,
+    )
+    top_results = search_results.items
     sources = [
         QaSourceItem(
             note_id=result.note_id,

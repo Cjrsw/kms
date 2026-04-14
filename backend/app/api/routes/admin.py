@@ -245,7 +245,7 @@ def delete_folder(
 @router.post("/notes", response_model=AdminNoteItem, status_code=status.HTTP_201_CREATED)
 def create_note(
     payload: NoteCreateRequest,
-    _: Annotated[User, ADMIN_DEPENDENCY],
+    current_user: Annotated[User, ADMIN_DEPENDENCY],
     db: Annotated[Session, Depends(get_db)],
 ) -> AdminNoteItem:
     repository = db.query(Repository).filter(Repository.id == payload.repository_id).first()
@@ -263,6 +263,7 @@ def create_note(
         repository_id=repository.id,
         folder_id=payload.folder_id,
         title=payload.title.strip(),
+        author_name=(current_user.full_name or current_user.username).strip() or "系统",
         content_text=payload.content_text.strip(),
         content_json=_build_content_json(payload.content_text, payload.content_json),
         min_clearance_level=payload.min_clearance_level,

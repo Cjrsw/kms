@@ -62,11 +62,31 @@ export type SearchResultItem = {
   repository_slug: string;
   repository_name: string;
   title: string;
+  author_name: string;
   snippet: string;
   clearance_level: number;
   attachment_count: number;
   score: number;
   updated_at: string;
+};
+
+export type SearchResponse = {
+  total: number;
+  page: number;
+  page_size: number;
+  items: SearchResultItem[];
+};
+
+export type SearchQueryParams = {
+  q: string;
+  repository_slug?: string;
+  author?: string;
+  file_type?: "all" | "note" | "pdf" | "docx";
+  date_from?: string;
+  date_to?: string;
+  sort_by?: "relevance" | "updated_desc" | "updated_asc";
+  page?: number;
+  page_size?: number;
 };
 
 export type QaSourceItem = {
@@ -450,9 +470,55 @@ export async function replaceNoteAttachment(
   return (await response.json()) as AttachmentItem;
 }
 
-export async function getSearchResults(query: string): Promise<SearchResultItem[]> {
+export async function getSearchResults(params: SearchQueryParams): Promise<SearchResponse> {
+  const searchParams = new URLSearchParams({ q: params.q });
+  if (params.repository_slug) {
+    searchParams.set("repository_slug", params.repository_slug);
+  }
+  if (params.author?.trim()) {
+    searchParams.set("author", params.author.trim());
+  }
+  if (params.file_type && params.file_type !== "all") {
+    searchParams.set("file_type", params.file_type);
+  }
+  if (params.date_from) {
+    searchParams.set("date_from", params.date_from);
+  }
+  if (params.date_to) {
+    searchParams.set("date_to", params.date_to);
+  }
+  if (params.sort_by) {
+    searchParams.set("sort_by", params.sort_by);
+  }
+  if (typeof params.page === "number" && params.page > 0) {
+    searchParams.set("page", String(params.page));
+  }
+  if (typeof params.page_size === "number" && params.page_size > 0) {
+    searchParams.set("page_size", String(params.page_size));
+  }
+  return apiFetch<SearchResponse>(`/search?${searchParams.toString()}`);
+}
+
+export async function getSearchSuggestions(query: string, repositorySlug?: string): Promise<string[]> {
   const searchParams = new URLSearchParams({ q: query });
-  return apiFetch<SearchResultItem[]>(`/search?${searchParams.toString()}`);
+  if (repositorySlug) {
+    searchParams.set("repository_slug", repositorySlug);
+  }
+  const response = await apiFetch<{ suggestions: string[] }>(`/search/suggest?${searchParams.toString()}`);
+  return response.suggestions || [];
+}
+
+export async function getSearchAuthorSuggestions(query?: string, repositorySlug?: string): Promise<string[]> {
+  const searchParams = new URLSearchParams();
+  if (query?.trim()) {
+    searchParams.set("q", query.trim());
+  }
+  if (repositorySlug) {
+    searchParams.set("repository_slug", repositorySlug);
+  }
+  const suffix = searchParams.toString();
+  const response = await apiFetch<{ suggestions: string[] }>(`/search/authors${suffix ? `?${suffix}` : ""}`);
+  return response.suggestions || [];
 }
 
 export async function getQaAnswer(query: string, repositorySlug?: string): Promise<QaAnswer> {

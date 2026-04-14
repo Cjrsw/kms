@@ -42,6 +42,7 @@ class Note(Base):
     repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"))
     folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
+    author_name: Mapped[str] = mapped_column(String(120), default="系统")
     content_json: Mapped[str] = mapped_column(Text, default="{}")
     content_text: Mapped[str] = mapped_column(Text, default="")
     min_clearance_level: Mapped[int] = mapped_column(Integer, default=1)

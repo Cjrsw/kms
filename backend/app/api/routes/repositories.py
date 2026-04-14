@@ -257,6 +257,7 @@ def create_note_user(
         repository_id=repository.id,
         folder_id=payload.folder_id,
         title=payload.title.strip(),
+        author_name=(user.full_name or user.username).strip() or "系统",
         content_text=content_text,
         content_json=content_json,
         min_clearance_level=desired_level,
