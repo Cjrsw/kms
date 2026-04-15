@@ -105,5 +105,10 @@ class NoteChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer)
     content_text: Mapped[str] = mapped_column(Text)
     es_document_id: Mapped[str] = mapped_column(String(255), unique=True)
+    source_type: Mapped[str] = mapped_column(String(40), default="note")
+    source_locator: Mapped[str] = mapped_column(Text, default="")
+    char_start: Mapped[int] = mapped_column(Integer, default=0)
+    char_end: Mapped[int] = mapped_column(Integer, default=0)
+    vector_point_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
 
     note: Mapped["Note"] = relationship(back_populates="chunks")

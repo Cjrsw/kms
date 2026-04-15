@@ -54,6 +54,12 @@ class User(Base):
     roles: Mapped[list["UserRole"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     auth_audit_logs: Mapped[list["AuthAuditLog"]] = relationship(back_populates="user")
     revoked_tokens: Mapped[list["RevokedToken"]] = relationship(back_populates="user")
+    model_preference: Mapped["UserModelPreference | None"] = relationship(
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    qa_audit_logs: Mapped[list["QaAuditLog"]] = relationship(back_populates="user")
 
 
 class Role(Base):

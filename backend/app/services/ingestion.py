@@ -46,7 +46,7 @@ def _extract_pdf_text(file_bytes: bytes) -> str:
     except Exception:  # noqa: BLE001
         return ""
 
-    page_texts = []
+    page_texts: list[str] = []
     for page in reader.pages:
         try:
             page_text = page.extract_text() or ""
@@ -55,7 +55,8 @@ def _extract_pdf_text(file_bytes: bytes) -> str:
         if page_text.strip():
             page_texts.append(page_text.strip())
 
-    return "\n".join(page_texts).strip()
+    # Keep page boundaries for chunking strategies and retrieval diagnostics.
+    return "\f".join(page_texts).strip()
 
 
 def _extract_docx_text(file_bytes: bytes) -> str:

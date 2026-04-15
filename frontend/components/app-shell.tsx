@@ -19,7 +19,8 @@ const navigationItems: NavigationItem[] = [
   { href: "/repositories", label: "知识仓库", matchers: ["/repositories"], icon: Database },
   { href: "/search", label: "全文检索", matchers: ["/search"], icon: Search },
   { href: "/qa", label: "知识问答", matchers: ["/qa"], icon: MessageSquare },
-  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard, requiredRoles: ["admin"] }
+  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard, requiredRoles: ["admin"] },
+  { href: "/admin/ai", label: "AI模型管理", matchers: ["/admin/ai"], icon: Settings, requiredRoles: ["admin"] }
 ];
 
 type AppShellProps = {

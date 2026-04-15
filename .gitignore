@@ -17,3 +17,4 @@ frontend/.turbo/
 mysql-data/
 minio-data/
 es-data/
+qdrant-data/

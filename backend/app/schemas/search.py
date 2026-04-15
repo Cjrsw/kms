@@ -12,6 +12,7 @@ class SearchResultItem(BaseModel):
     attachment_count: int
     score: float
     updated_at: str
+    hit_mode: str = "keyword"
 
 
 class SearchResponse(BaseModel):

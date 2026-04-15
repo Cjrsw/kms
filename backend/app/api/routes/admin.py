@@ -14,8 +14,18 @@ from app.core.cors_state import get_allowed_origins, set_allowed_origins
 from app.core.deps import require_role
 from app.core.security import get_password_hash
 from app.db.session import get_db
+from app.models.ai import AIModel, QaAuditLog
 from app.models.content import Folder, Note, Repository
 from app.models.user import AuthAuditLog, Department, Role, User, UserRole
+from app.schemas.ai import (
+    AdminAIModelCreateRequest,
+    AdminAIModelDefaults,
+    AdminAIModelDefaultsUpdateRequest,
+    AdminAIModelItem,
+    AdminAIModelsResponse,
+    AdminAIModelUpdateRequest,
+    QaAuditLogResponse,
+)
 from app.schemas.admin import (
     AdminContentResponse,
     AdminFolderItem,
@@ -40,6 +50,15 @@ from app.schemas.admin import (
     RolesResponse,
     UserCreateRequest,
     UserUpdateRequest,
+)
+from app.services.ai_models import (
+    create_ai_model,
+    delete_ai_model,
+    get_admin_model_defaults,
+    serialize_admin_model,
+    set_model_enabled,
+    update_admin_model_defaults,
+    update_ai_model,
 )
 from app.services.search import delete_note_document, index_note, rebuild_notes_index
 from app.services.system_settings import get_cors_origins_setting, set_cors_origins_setting
@@ -491,6 +510,92 @@ def get_auth_audit_logs(
         for log in logs
     ]
     return AuthAuditLogResponse(total=len(items), logs=items)
+
+
+@router.get("/security/qa-audit", response_model=QaAuditLogResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def get_qa_audit_logs(
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = 50,
+) -> QaAuditLogResponse:
+    safe_limit = min(max(limit, 1), 200)
+    logs = db.query(QaAuditLog).order_by(QaAuditLog.id.desc()).limit(safe_limit).all()
+    items = [
+        {
+            "id": log.id,
+            "username": log.username,
+            "question": log.question,
+            "repository_slug": log.repository_slug,
+            "model_name": log.model_name,
+            "status": log.status,
+            "error_code": log.error_code,
+            "error_category": log.error_category,
+            "hint": log.hint,
+            "trace_id": log.trace_id,
+            "latency_ms": log.latency_ms,
+            "source_count": log.source_count,
+            "recall_mode": log.recall_mode,
+            "created_at": log.created_at.isoformat(),
+        }
+        for log in logs
+    ]
+    return QaAuditLogResponse(total=len(items), logs=items)
+
+
+@router.get("/ai/models", response_model=AdminAIModelsResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def list_ai_models(db: Annotated[Session, Depends(get_db)]) -> AdminAIModelsResponse:
+    models = db.query(AIModel).order_by(AIModel.id.asc()).all()
+    defaults = get_admin_model_defaults(db)
+    items = [AdminAIModelItem(**serialize_admin_model(model)) for model in models]
+    return AdminAIModelsResponse(total=len(items), defaults=defaults, models=items)
+
+
+@router.post("/ai/models", response_model=AdminAIModelItem, status_code=status.HTTP_201_CREATED, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def create_ai_model_api(
+    payload: AdminAIModelCreateRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminAIModelItem:
+    model = create_ai_model(db, payload)
+    return AdminAIModelItem(**serialize_admin_model(model))
+
+
+@router.put("/ai/models/{model_id}", response_model=AdminAIModelItem, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def update_ai_model_api(
+    model_id: int,
+    payload: AdminAIModelUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminAIModelItem:
+    model = update_ai_model(db, model_id=model_id, payload=payload)
+    return AdminAIModelItem(**serialize_admin_model(model))
+
+
+@router.post("/ai/models/{model_id}/enable", response_model=AdminAIModelItem, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def enable_ai_model(model_id: int, db: Annotated[Session, Depends(get_db)]) -> AdminAIModelItem:
+    model = set_model_enabled(db, model_id=model_id, enabled=True)
+    return AdminAIModelItem(**serialize_admin_model(model))
+
+
+@router.post("/ai/models/{model_id}/disable", response_model=AdminAIModelItem, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def disable_ai_model(model_id: int, db: Annotated[Session, Depends(get_db)]) -> AdminAIModelItem:
+    model = set_model_enabled(db, model_id=model_id, enabled=False)
+    return AdminAIModelItem(**serialize_admin_model(model))
+
+
+@router.delete("/ai/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def delete_ai_model_api(model_id: int, db: Annotated[Session, Depends(get_db)]) -> Response:
+    delete_ai_model(db, model_id=model_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/ai/defaults", response_model=AdminAIModelDefaults, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def update_ai_defaults(
+    payload: AdminAIModelDefaultsUpdateRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminAIModelDefaults:
+    return update_admin_model_defaults(
+        db,
+        chat_default_model_id=payload.chat_default_model_id,
+        embedding_default_model_id=payload.embedding_default_model_id,
+    )
 
 
 @router.post("/users", response_model=AdminUserItem, status_code=status.HTTP_201_CREATED, dependencies=[ADMIN_DEPENDENCY])

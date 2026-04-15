@@ -2,49 +2,159 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Iterable
+import time
+from uuid import uuid4
 
-import httpx
-from app.core.config import get_settings
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.user import User
-from app.schemas.qa import QaAnswerResponse, QaSourceItem
-from app.services.search import search_notes
+from app.schemas.qa import QaAnswerData, QaFailure, QaResponseEnvelope, QaSourceItem
+from app.services.ai_models import ModelInvocationError, resolve_chat_model, invoke_chat_completion
+from app.services.qa_audit import record_qa_audit
+from app.services.search import hybrid_recall_for_qa
 
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"\s+")
+REF_RE = re.compile(r"\[(\d+)\]")
 settings = get_settings()
-GEMINI_ENDPOINT = (
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-)
 
 
 def answer_question(
     db: Session,
+    *,
     user: User,
     question: str,
     repository_slug: str | None = None,
-) -> QaAnswerResponse:
+    model_id: int | None = None,
+) -> QaResponseEnvelope:
+    trace_id = uuid4().hex
+    started_at = time.perf_counter()
     normalized_question = question.strip()
     if not normalized_question:
-        return QaAnswerResponse(
-            question="",
-            answer="请输入问题后再发起问答。",
-            source_count=0,
-            sources=[],
+        return _failed(
+            error_code="empty_question",
+            error_category="validation",
+            user_message="问题不能为空。",
+            hint="请输入问题后再发送。",
+            trace_id=trace_id,
         )
 
-    search_results = search_notes(
+    top_k = max(1, settings.qa_recall_top_k)
+    source_top_n = max(1, settings.qa_source_top_n)
+    candidates, recall_mode = hybrid_recall_for_qa(
         db=db,
         user=user,
         query=normalized_question,
         repository_slug=repository_slug,
-        page=1,
-        page_size=3,
+        top_k=top_k,
     )
-    top_results = search_results.items
-    sources = [
+    sources = _build_sources(candidates[:source_top_n])
+
+    if not sources:
+        answer_data = QaAnswerData(
+            question=normalized_question,
+            answer="根据当前可见内容无法回答这个问题。你可以换个更具体的问法，或切换知识库范围。",
+            source_count=0,
+            sources=[],
+            model_id=None,
+            model_name="",
+            recall_mode=recall_mode,
+            trace_id=trace_id,
+        )
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        record_qa_audit(
+            db,
+            user=user,
+            question=normalized_question,
+            repository_slug=repository_slug,
+            model=None,
+            status="success",
+            trace_id=trace_id,
+            latency_ms=latency_ms,
+            source_count=0,
+            recall_mode=recall_mode,
+        )
+        return QaResponseEnvelope(status="ok", data=answer_data)
+
+    try:
+        selected_model = resolve_chat_model(db, user, explicit_model_id=model_id)
+    except ModelInvocationError as exc:
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        record_qa_audit(
+            db,
+            user=user,
+            question=normalized_question,
+            repository_slug=repository_slug,
+            model=None,
+            status="failed",
+            error_code=exc.failure.error_code,
+            error_category=exc.failure.error_category,
+            hint=exc.failure.hint,
+            trace_id=trace_id,
+            latency_ms=latency_ms,
+            source_count=len(sources),
+            recall_mode=recall_mode,
+        )
+        return _failed_from_structured(exc.failure, trace_id=trace_id)
+
+    context_sections = _build_context_sections(sources)
+    try:
+        answer_text = invoke_chat_completion(
+            selected_model,
+            question=normalized_question,
+            context_sections=context_sections,
+            trace_id=trace_id,
+        )
+    except ModelInvocationError as exc:
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        record_qa_audit(
+            db,
+            user=user,
+            question=normalized_question,
+            repository_slug=repository_slug,
+            model=selected_model,
+            status="failed",
+            error_code=exc.failure.error_code,
+            error_category=exc.failure.error_category,
+            hint=exc.failure.hint,
+            trace_id=trace_id,
+            latency_ms=latency_ms,
+            source_count=len(sources),
+            recall_mode=recall_mode,
+        )
+        return _failed_from_structured(exc.failure, trace_id=trace_id)
+
+    answer_text = _ensure_reference_citations(answer_text, sources)
+
+    answer_data = QaAnswerData(
+        question=normalized_question,
+        answer=answer_text,
+        source_count=len(sources),
+        sources=sources,
+        model_id=selected_model.id,
+        model_name=selected_model.name,
+        recall_mode=recall_mode,
+        trace_id=trace_id,
+    )
+    latency_ms = int((time.perf_counter() - started_at) * 1000)
+    record_qa_audit(
+        db,
+        user=user,
+        question=normalized_question,
+        repository_slug=repository_slug,
+        model=selected_model,
+        status="success",
+        trace_id=trace_id,
+        latency_ms=latency_ms,
+        source_count=len(sources),
+        recall_mode=recall_mode,
+    )
+    return QaResponseEnvelope(status="ok", data=answer_data)
+
+
+def _build_sources(candidates: list) -> list[QaSourceItem]:
+    return [
         QaSourceItem(
             note_id=result.note_id,
             repository_slug=result.repository_slug,
@@ -55,91 +165,69 @@ def answer_question(
             attachment_count=result.attachment_count,
             updated_at=result.updated_at,
         )
-        for result in top_results
+        for result in candidates
     ]
 
-    if not sources:
-        scope_text = "当前范围内" if repository_slug else "当前权限可见的知识库中"
-        return QaAnswerResponse(
-            question=normalized_question,
-            answer=f"我没有在{scope_text}检索到可直接支撑这个问题的内容。你可以换一个更具体的关键词，或缩小到某个知识仓库后再试。",
-            source_count=0,
-            sources=[],
+
+def _build_context_sections(sources: list[QaSourceItem]) -> list[str]:
+    sections: list[str] = []
+    for idx, source in enumerate(sources, start=1):
+        snippet = _clean_snippet(source.snippet)
+        sections.append(
+            (
+                f"[{idx}] 标题: {source.title}\n"
+                f"仓库: {source.repository_name} ({source.repository_slug})\n"
+                f"密级: L{source.clearance_level}\n"
+                f"内容片段: {snippet or '（命中记录但片段为空）'}"
+            )
         )
-
-    summary_lines = [
-        f"以下回答基于你当前权限可见的 {len(sources)} 条知识整理，不包含更高密级内容。"
-    ]
-    for index, source in enumerate(sources, start=1):
-        cleaned_snippet = _clean_snippet(source.snippet)
-        summary_lines.append(f"{index}. {source.title}：{cleaned_snippet or '命中相关内容，建议打开原文查看'}")
-
-    llm_answer = _try_gemini_answer(normalized_question, sources)
-    answer_text = llm_answer or "\n".join(summary_lines)
-
-    return QaAnswerResponse(
-        question=normalized_question,
-        answer=answer_text,
-        source_count=len(sources),
-        sources=sources,
-    )
+    return sections
 
 
 def _clean_snippet(snippet: str) -> str:
     text = html.unescape(TAG_RE.sub("", snippet))
     text = SPACE_RE.sub(" ", text).strip()
-    if len(text) <= 140:
+    if len(text) <= 300:
         return text
-    return f"{text[:137]}..."
+    return f"{text[:297]}..."
 
 
-def _try_gemini_answer(question: str, sources: Iterable[QaSourceItem]) -> str | None:
-    api_key = settings.gemini_api_key
-    if not api_key:
-        return None
+def _ensure_reference_citations(answer_text: str, sources: list[QaSourceItem]) -> str:
+    if not sources:
+        return answer_text
+    matches = [int(item) for item in REF_RE.findall(answer_text)]
+    valid_numbers = sorted({num for num in matches if 1 <= num <= len(sources)})
+    if valid_numbers:
+        return answer_text
+    refs = "".join(f"[{index}]" for index in range(1, min(len(sources), 3) + 1))
+    return f"{answer_text}\n\n参考来源：{refs}"
 
-    context_lines = []
-    for idx, src in enumerate(sources, start=1):
-        snippet = _clean_snippet(src.snippet)
-        context_lines.append(
-            f"[{idx}] 标题：{src.title}（仓库：{src.repository_name}，密级 L{src.clearance_level}）\n内容摘录：{snippet}"
-        )
 
-    system_prompt = (
-        "你是企业内部知识助手。基于提供的命中片段回答问题，优先使用片段内容，不要编造。"
-        " 输出用简短中文段落，末尾列出引用编号，如[1][2]。如果片段不足以回答，请说明“根据当前可见内容无法回答”。"
+def _failed(
+    *,
+    error_code: str,
+    error_category: str,
+    user_message: str,
+    hint: str,
+    trace_id: str,
+) -> QaResponseEnvelope:
+    return QaResponseEnvelope(
+        status="failed",
+        error=QaFailure(
+            error_code=error_code,
+            error_category=error_category,
+            user_message=user_message,
+            hint=hint,
+            trace_id=trace_id,
+        ),
     )
 
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": system_prompt},
-                    {"text": f"用户问题：{question}"},
-                    {"text": "可用片段：\n" + "\n\n".join(context_lines)},
-                ],
-            }
-        ],
-    }
 
-    try:
-        response = httpx.post(
-            GEMINI_ENDPOINT,
-            params={"key": api_key},
-            json=payload,
-            timeout=20,
-        )
-        response.raise_for_status()
-        data = response.json()
-        candidates = data.get("candidates") or []
-        for cand in candidates:
-            parts = cand.get("content", {}).get("parts", [])
-            texts = [part.get("text", "") for part in parts if "text" in part]
-            combined = "\n".join(texts).strip()
-            if combined:
-                return combined
-    except Exception:
-        return None
-
-    return None
+def _failed_from_structured(failure, *, trace_id: str) -> QaResponseEnvelope:
+    return _failed(
+        error_code=failure.error_code,
+        error_category=failure.error_category,
+        user_message=failure.user_message,
+        hint=failure.hint,
+        trace_id=trace_id,
+    )

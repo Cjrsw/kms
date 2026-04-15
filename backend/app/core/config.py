@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
     elasticsearch_url: str = Field(default="http://elasticsearch:9200", alias="ELASTICSEARCH_URL")
+    qdrant_url: str = Field(default="http://qdrant:6333", alias="QDRANT_URL")
+    qdrant_collection: str = Field(default="kms_chunks", alias="QDRANT_COLLECTION")
+    qdrant_timeout_seconds: int = Field(default=15, alias="QDRANT_TIMEOUT_SECONDS")
 
     minio_endpoint: str = Field(default="minio:9000", alias="MINIO_ENDPOINT")
     minio_access_key: str = Field(default="minioadmin", alias="MINIO_ACCESS_KEY")
@@ -40,6 +43,8 @@ class Settings(BaseSettings):
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
 
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    qa_recall_top_k: int = Field(default=8, alias="QA_RECALL_TOP_K")
+    qa_source_top_n: int = Field(default=5, alias="QA_SOURCE_TOP_N")
 
     @property
     def sqlalchemy_database_uri(self) -> str:

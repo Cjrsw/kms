@@ -78,7 +78,7 @@ export type SearchResponse = {
 };
 
 export type SearchQueryParams = {
-  q: string;
+  q?: string;
   repository_slug?: string;
   author?: string;
   file_type?: "all" | "note" | "pdf" | "docx";
@@ -101,10 +101,41 @@ export type QaSourceItem = {
 };
 
 export type QaAnswer = {
+  model_id: number | null;
+  model_name: string;
+  recall_mode: string;
+  trace_id: string;
   question: string;
   answer: string;
   source_count: number;
   sources: QaSourceItem[];
+};
+
+export type QaFailure = {
+  error_code: string;
+  error_category: string;
+  user_message: string;
+  hint: string;
+  trace_id: string;
+};
+
+export type QaResponseEnvelope = {
+  status: "ok" | "failed";
+  data: QaAnswer | null;
+  error: QaFailure | null;
+};
+
+export type QaModelOption = {
+  id: number;
+  name: string;
+  model_name: string;
+  provider: "openai_compatible";
+};
+
+export type QaAvailableModels = {
+  models: QaModelOption[];
+  user_default_model_id: number | null;
+  system_default_model_id: number | null;
 };
 
 export type AdminFolderItem = {
@@ -200,6 +231,62 @@ export type AdminAuthAuditItem = {
 export type AdminAuthAuditResponse = {
   total: number;
   logs: AdminAuthAuditItem[];
+};
+
+export type AdminAiModel = {
+  id: number;
+  name: string;
+  provider: "openai_compatible";
+  capability: "chat" | "embedding";
+  api_base_url: string;
+  model_name: string;
+  api_key_masked: string;
+  extra_headers: Record<string, string>;
+  extra_body: Record<string, unknown>;
+  max_tokens: number | null;
+  timeout_seconds: number;
+  description: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminAiModelDefaults = {
+  chat_default_model_id: number | null;
+  embedding_default_model_id: number | null;
+};
+
+export type AdminAiModelsResponse = {
+  total: number;
+  defaults: AdminAiModelDefaults;
+  models: AdminAiModel[];
+};
+
+export type QaAuditItem = {
+  id: number;
+  username: string;
+  question: string;
+  repository_slug: string;
+  model_name: string;
+  status: string;
+  error_code: string;
+  error_category: string;
+  hint: string;
+  trace_id: string;
+  latency_ms: number;
+  source_count: number;
+  recall_mode: string;
+  created_at: string;
+};
+
+export type QaAuditResponse = {
+  total: number;
+  logs: QaAuditItem[];
+};
+
+export type UserModelPreference = {
+  chat_model_id: number | null;
+  system_default_chat_model_id: number | null;
 };
 
 export type ProfilePayload = {
@@ -471,7 +558,10 @@ export async function replaceNoteAttachment(
 }
 
 export async function getSearchResults(params: SearchQueryParams): Promise<SearchResponse> {
-  const searchParams = new URLSearchParams({ q: params.q });
+  const searchParams = new URLSearchParams();
+  if (params.q && params.q.trim()) {
+    searchParams.set("q", params.q.trim());
+  }
   if (params.repository_slug) {
     searchParams.set("repository_slug", params.repository_slug);
   }
@@ -521,12 +611,20 @@ export async function getSearchAuthorSuggestions(query?: string, repositorySlug?
   return response.suggestions || [];
 }
 
-export async function getQaAnswer(query: string, repositorySlug?: string): Promise<QaAnswer> {
-  const searchParams = new URLSearchParams({ q: query });
-  if (repositorySlug) {
-    searchParams.set("repository_slug", repositorySlug);
-  }
-  return apiFetch<QaAnswer>(`/qa?${searchParams.toString()}`);
+export async function askQa(payload: {
+  question: string;
+  repository_slug?: string;
+  model_id?: number | null;
+}): Promise<QaResponseEnvelope> {
+  return apiJsonRequest<QaResponseEnvelope>("/qa", "POST", {
+    question: payload.question,
+    repository_slug: payload.repository_slug ?? null,
+    model_id: payload.model_id ?? null,
+  });
+}
+
+export async function getQaAvailableModels(): Promise<QaAvailableModels> {
+  return apiFetch<QaAvailableModels>("/qa/models");
 }
 
 export async function getAdminContent(): Promise<AdminContent> {
@@ -693,10 +791,82 @@ export async function getAdminAuthAudit(limit = 50): Promise<AdminAuthAuditRespo
   return apiFetch<AdminAuthAuditResponse>(`/admin/security/auth-audit?limit=${limit}`);
 }
 
+export async function getAdminQaAudit(limit = 50): Promise<QaAuditResponse> {
+  return apiFetch<QaAuditResponse>(`/admin/security/qa-audit?limit=${limit}`);
+}
+
+export async function getAdminAiModels(): Promise<AdminAiModelsResponse> {
+  return apiFetch<AdminAiModelsResponse>("/admin/ai/models");
+}
+
+export async function createAdminAiModel(payload: {
+  name: string;
+  provider?: "openai_compatible";
+  capability: "chat" | "embedding";
+  api_base_url: string;
+  model_name: string;
+  api_key: string;
+  extra_headers?: Record<string, string>;
+  extra_body?: Record<string, unknown>;
+  max_tokens?: number | null;
+  timeout_seconds?: number;
+  description?: string;
+  is_enabled?: boolean;
+}): Promise<AdminAiModel> {
+  return apiJsonRequest<AdminAiModel>("/admin/ai/models", "POST", payload);
+}
+
+export async function updateAdminAiModel(
+  modelId: number,
+  payload: {
+    name: string;
+    provider?: "openai_compatible";
+    capability: "chat" | "embedding";
+    api_base_url: string;
+    model_name: string;
+    api_key?: string;
+    extra_headers?: Record<string, string>;
+    extra_body?: Record<string, unknown>;
+    max_tokens?: number | null;
+    timeout_seconds?: number;
+    description?: string;
+    is_enabled?: boolean;
+  }
+): Promise<AdminAiModel> {
+  return apiJsonRequest<AdminAiModel>(`/admin/ai/models/${modelId}`, "PUT", payload);
+}
+
+export async function enableAdminAiModel(modelId: number): Promise<AdminAiModel> {
+  return apiJsonRequest<AdminAiModel>(`/admin/ai/models/${modelId}/enable`, "POST");
+}
+
+export async function disableAdminAiModel(modelId: number): Promise<AdminAiModel> {
+  return apiJsonRequest<AdminAiModel>(`/admin/ai/models/${modelId}/disable`, "POST");
+}
+
+export async function deleteAdminAiModel(modelId: number): Promise<void> {
+  await apiJsonRequest<void>(`/admin/ai/models/${modelId}`, "DELETE");
+}
+
+export async function updateAdminAiDefaults(payload: {
+  chat_default_model_id: number | null;
+  embedding_default_model_id: number | null;
+}): Promise<AdminAiModelDefaults> {
+  return apiJsonRequest<AdminAiModelDefaults>("/admin/ai/defaults", "PUT", payload);
+}
+
 export async function updateMyProfile(payload: ProfilePayload): Promise<void> {
   await apiJsonRequest<void>("/auth/me/profile", "PUT", payload);
 }
 
 export async function changeMyPassword(payload: { current_password: string; new_password: string }): Promise<void> {
   await apiJsonRequest<void>("/auth/me/password", "POST", payload);
+}
+
+export async function getMyModelPreference(): Promise<UserModelPreference> {
+  return apiFetch<UserModelPreference>("/auth/me/model-preference");
+}
+
+export async function updateMyModelPreference(payload: { chat_model_id: number | null }): Promise<UserModelPreference> {
+  return apiJsonRequest<UserModelPreference>("/auth/me/model-preference", "PUT", payload);
 }

@@ -10,6 +10,7 @@ from app.core.deps import get_current_user
 from app.core.security import get_password_hash, is_password_complex, verify_password
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.ai import UserModelPreferenceResponse, UserModelPreferenceUpdateRequest
 from app.schemas.auth import (
     ChangePasswordRequest,
     CurrentUserResponse,
@@ -17,6 +18,7 @@ from app.schemas.auth import (
     TokenResponse,
     UpdateProfileRequest,
 )
+from app.services.ai_models import get_user_model_preference, set_user_model_preference
 from app.services.auth import login_with_database_user, serialize_current_user
 from app.services.audit import record_auth_audit
 from app.services.token_revocation import parse_jwt_exp, revoke_token_jti
@@ -46,6 +48,23 @@ def login(payload: LoginRequest, request: Request, db: Annotated[Session, Depend
 @router.get("/me", response_model=CurrentUserResponse)
 def current_user(user: Annotated[User, Depends(get_current_user)]) -> CurrentUserResponse:
     return serialize_current_user(user)
+
+
+@router.get("/me/model-preference", response_model=UserModelPreferenceResponse)
+def get_my_model_preference(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> UserModelPreferenceResponse:
+    return get_user_model_preference(db, user)
+
+
+@router.put("/me/model-preference", response_model=UserModelPreferenceResponse)
+def update_my_model_preference(
+    payload: UserModelPreferenceUpdateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> UserModelPreferenceResponse:
+    return set_user_model_preference(db, user, payload.chat_model_id)
 
 
 @router.put("/me/profile", response_model=CurrentUserResponse)
