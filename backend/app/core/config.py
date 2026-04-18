@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +45,34 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     qa_recall_top_k: int = Field(default=8, alias="QA_RECALL_TOP_K")
     qa_source_top_n: int = Field(default=5, alias="QA_SOURCE_TOP_N")
+    qa_context_char_budget: int = Field(default=7000, alias="QA_CONTEXT_CHAR_BUDGET")
+    qa_context_max_chunks_per_note: int = Field(default=2, alias="QA_CONTEXT_MAX_CHUNKS_PER_NOTE")
+    qa_chat_base_url: str = Field(default="", alias="QA_CHAT_BASE_URL")
+    qa_chat_model_name: str = Field(default="", alias="QA_CHAT_MODEL_NAME")
+    qa_chat_api_key: str = Field(default="", alias="QA_CHAT_API_KEY")
+    qa_chat_timeout_seconds: int = Field(default=30, alias="QA_CHAT_TIMEOUT_SECONDS")
+    qa_chat_max_tokens: int | None = Field(default=None, alias="QA_CHAT_MAX_TOKENS")
+    qa_embed_base_url: str = Field(default="", alias="QA_EMBED_BASE_URL")
+    qa_embed_model_name: str = Field(default="", alias="QA_EMBED_MODEL_NAME")
+    qa_embed_api_key: str = Field(default="", alias="QA_EMBED_API_KEY")
+    qa_embed_timeout_seconds: int = Field(default=30, alias="QA_EMBED_TIMEOUT_SECONDS")
+    qa_system_prompt_default: str = Field(
+        default=(
+            "You are an enterprise knowledge assistant. "
+            "Answer only from provided sources. "
+            "If sources are insufficient, say you cannot answer from available content."
+        ),
+        alias="QA_SYSTEM_PROMPT_DEFAULT",
+    )
+
+    @field_validator("qa_chat_max_tokens", mode="before")
+    @classmethod
+    def _normalize_qa_chat_max_tokens(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def sqlalchemy_database_uri(self) -> str:

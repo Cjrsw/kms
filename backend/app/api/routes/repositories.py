@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 from typing import Annotated
@@ -34,6 +35,8 @@ router = APIRouter()
 ALLOWED_ATTACHMENT_TYPES = {"pdf", "docx"}
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
 ADMIN_ROLE_CODE = "admin"
+LATEST_NOTE_WINDOW = timedelta(days=1)
+LATEST_NOTE_LIMIT = 2
 
 
 @router.get("", response_model=list[RepositoryListItem])
@@ -49,17 +52,29 @@ def list_repositories(
         .all()
     )
 
-    return [
-        RepositoryListItem(
-            id=repository.id,
-            slug=repository.slug,
-            name=repository.name,
-            description=repository.description,
-            min_clearance_level=repository.min_clearance_level,
-            note_count=len([note for note in repository.notes if note.min_clearance_level <= user.clearance_level]),
+    recent_cutoff = datetime.utcnow() - LATEST_NOTE_WINDOW
+    items: list[RepositoryListItem] = []
+    for repository in repositories:
+        visible_notes = [
+            note for note in repository.notes if note.min_clearance_level <= user.clearance_level
+        ]
+        latest_notes = [
+            _serialize_note_list_item(note)
+            for note in sorted(visible_notes, key=lambda item: (item.created_at, item.id), reverse=True)
+            if note.created_at >= recent_cutoff
+        ][:LATEST_NOTE_LIMIT]
+        items.append(
+            RepositoryListItem(
+                id=repository.id,
+                slug=repository.slug,
+                name=repository.name,
+                description=repository.description,
+                min_clearance_level=repository.min_clearance_level,
+                note_count=len(visible_notes),
+                latest_notes=latest_notes,
+            )
         )
-        for repository in repositories
-    ]
+    return items
 
 
 @router.get("/{repository_slug}", response_model=RepositoryDetailResponse)
@@ -94,18 +109,10 @@ def get_repository(
         if folder.min_clearance_level <= user.clearance_level
     ]
     visible_notes = [
-        NoteListItem(
-            id=note.id,
-            title=note.title,
-            folder_id=note.folder_id,
-            clearance_level=note.min_clearance_level,
-            updated_at=note.updated_at.isoformat(),
-            attachment_count=len(note.attachments),
-        )
+        _serialize_note_list_item(note)
         for note in repository.notes
         if note.min_clearance_level <= user.clearance_level
     ]
-
     return RepositoryDetailResponse(
         id=repository.id,
         slug=repository.slug,
@@ -643,6 +650,18 @@ def _serialize_attachment(attachment: Attachment) -> AttachmentItem:
         file_size=attachment.file_size,
         created_at=attachment.created_at.isoformat(),
         download_url=None,
+    )
+
+
+def _serialize_note_list_item(note: Note) -> NoteListItem:
+    return NoteListItem(
+        id=note.id,
+        title=note.title,
+        folder_id=note.folder_id,
+        clearance_level=note.min_clearance_level,
+        created_at=note.created_at.isoformat(),
+        updated_at=note.updated_at.isoformat(),
+        attachment_count=len(note.attachments),
     )
 
 

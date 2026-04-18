@@ -44,6 +44,11 @@ def delete_points_by_note_id(note_id: int) -> None:
     _request("POST", f"/collections/{collection}/points/delete?wait=true", json=body, swallow_errors=True)
 
 
+def reset_collection() -> None:
+    collection = settings.qdrant_collection
+    _request("DELETE", f"/collections/{collection}", swallow_errors=True)
+
+
 def search_similar_chunks(
     *,
     vector: list[float],

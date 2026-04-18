@@ -22,6 +22,7 @@ class QaAnswerData(BaseModel):
     model_id: int | None = None
     model_name: str = ""
     recall_mode: str = "keyword"
+    citation_status: Literal["ok", "partial", "missing"] = "missing"
     trace_id: str = ""
 
 

@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
-import { Bell, Database, Info, LayoutDashboard, LogOut, Menu, MessageSquare, Search, Settings, User } from "lucide-react";
+import { Bell, Database, Info, LogOut, Menu, MessageSquare, Search, Settings, User } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import type { AuthUser } from "../lib/auth";
@@ -18,9 +18,7 @@ type NavigationItem = {
 const navigationItems: NavigationItem[] = [
   { href: "/repositories", label: "知识仓库", matchers: ["/repositories"], icon: Database },
   { href: "/search", label: "全文检索", matchers: ["/search"], icon: Search },
-  { href: "/qa", label: "知识问答", matchers: ["/qa"], icon: MessageSquare },
-  { href: "/admin", label: "后台系统", matchers: ["/admin"], icon: LayoutDashboard, requiredRoles: ["admin"] },
-  { href: "/admin/ai", label: "AI模型管理", matchers: ["/admin/ai"], icon: Settings, requiredRoles: ["admin"] }
+  { href: "/qa", label: "知识问答", matchers: ["/qa"], icon: MessageSquare }
 ];
 
 type AppShellProps = {

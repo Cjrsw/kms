@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,7 @@ from app.models.system import SystemSetting
 CORS_ORIGINS_SETTING_KEY = "cors_allow_origins"
 CHAT_DEFAULT_MODEL_SETTING_KEY = "chat_default_model_id"
 EMBEDDING_DEFAULT_MODEL_SETTING_KEY = "embedding_default_model_id"
+QA_SYSTEM_PROMPT_SETTING_KEY = "qa_system_prompt"
 
 
 def get_cors_origins_setting(db: Session) -> list[str] | None:
@@ -84,3 +86,26 @@ def set_ai_default_model_ids(
     set_int_setting(db, CHAT_DEFAULT_MODEL_SETTING_KEY, chat_default_model_id)
     set_int_setting(db, EMBEDDING_DEFAULT_MODEL_SETTING_KEY, embedding_default_model_id)
     return chat_default_model_id, embedding_default_model_id
+
+
+def get_qa_system_prompt_setting(db: Session) -> tuple[str | None, datetime | None]:
+    row = db.query(SystemSetting).filter(SystemSetting.key == QA_SYSTEM_PROMPT_SETTING_KEY).first()
+    if row is None:
+        return None, None
+    value = row.value.strip()
+    if not value:
+        return None, row.updated_at
+    return value, row.updated_at
+
+
+def set_qa_system_prompt_setting(db: Session, prompt: str) -> tuple[str, datetime]:
+    normalized = prompt.strip()
+    row = db.query(SystemSetting).filter(SystemSetting.key == QA_SYSTEM_PROMPT_SETTING_KEY).first()
+    if row is None:
+        row = SystemSetting(key=QA_SYSTEM_PROMPT_SETTING_KEY, value=normalized)
+    else:
+        row.value = normalized
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row.value, row.updated_at

@@ -8,8 +8,8 @@ export async function saveNoteAction(repositorySlug: string, noteId: string, for
   const contentText = String(formData.get("content_text") ?? "").trim();
   const contentJson = String(formData.get("content_json") ?? "").trim();
 
-  if (!title || !contentText) {
-    throw new Error("Title and content are required.");
+  if (!title) {
+    throw new Error("Title is required.");
   }
 
   await updateNote(repositorySlug, noteId, {

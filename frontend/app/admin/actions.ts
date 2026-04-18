@@ -46,12 +46,28 @@ function parseOptionalNumber(formData: FormData, key: string): number | null {
   return value;
 }
 
-function finishAdminMutation() {
+function getReturnPath(formData: FormData, fallbackPath: string): string {
+  const rawValue = String(formData.get("return_path") ?? "").trim();
+  if (!rawValue.startsWith("/admin")) {
+    return fallbackPath;
+  }
+  return rawValue;
+}
+
+function finishAdminMutation(formData: FormData, fallbackPath: string) {
+  const returnPath = getReturnPath(formData, fallbackPath);
   revalidatePath("/admin");
+  revalidatePath("/admin/users");
+  revalidatePath("/admin/departments");
+  revalidatePath("/admin/repositories");
+  revalidatePath("/admin/security/cors");
+  revalidatePath("/admin/security/auth-audit");
+  revalidatePath("/admin/ai/prompt");
+  revalidatePath("/admin/ai/qa-audit");
   revalidatePath("/repositories");
   revalidatePath("/search");
   revalidatePath("/qa");
-  redirect("/admin");
+  redirect(returnPath);
 }
 
 function parseBoolean(formData: FormData, key: string): boolean {
@@ -67,7 +83,7 @@ export async function createRepositoryAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function updateRepositoryAction(formData: FormData) {
@@ -78,12 +94,12 @@ export async function updateRepositoryAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function deleteRepositoryAction(formData: FormData) {
   await deleteRepositoryAdmin(String(formData.get("repository_id")));
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function createFolderAction(formData: FormData) {
@@ -94,7 +110,7 @@ export async function createFolderAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function updateFolderAction(formData: FormData) {
@@ -104,12 +120,12 @@ export async function updateFolderAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function deleteFolderAction(formData: FormData) {
   await deleteFolderAdmin(String(formData.get("folder_id")));
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function createNoteAction(formData: FormData) {
@@ -121,7 +137,7 @@ export async function createNoteAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function updateNoteAction(formData: FormData) {
@@ -132,12 +148,12 @@ export async function updateNoteAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function deleteNoteAction(formData: FormData) {
   await deleteNoteAdmin(String(formData.get("note_id")));
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/repositories");
 }
 
 export async function createUserAction(formData: FormData) {
@@ -148,7 +164,7 @@ export async function createUserAction(formData: FormData) {
     gender: parseRequiredString(formData, "gender") || null,
     clearance_level: parseRequiredNumber(formData, "clearance_level")
   });
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/users");
 }
 
 export async function updateUserAction(formData: FormData) {
@@ -163,12 +179,12 @@ export async function updateUserAction(formData: FormData) {
     clearance_level: parseRequiredNumber(formData, "clearance_level"),
     is_active: parseBoolean(formData, "is_active"),
   });
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/users");
 }
 
 export async function deleteUserAction(formData: FormData) {
   await deleteUserAdmin(String(formData.get("user_id")));
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/users");
 }
 
 export async function createDepartmentAction(formData: FormData) {
@@ -179,7 +195,7 @@ export async function createDepartmentAction(formData: FormData) {
     sort_order: parseRequiredNumber(formData, "sort_order"),
     is_active: parseBoolean(formData, "is_active"),
   });
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/departments");
 }
 
 export async function updateDepartmentAction(formData: FormData) {
@@ -190,7 +206,7 @@ export async function updateDepartmentAction(formData: FormData) {
     sort_order: parseRequiredNumber(formData, "sort_order"),
     is_active: parseBoolean(formData, "is_active"),
   });
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/departments");
 }
 
 export async function updateCorsOriginsAction(formData: FormData) {
@@ -200,5 +216,5 @@ export async function updateCorsOriginsAction(formData: FormData) {
     .map((item) => item.trim())
     .filter(Boolean);
   await updateAdminCorsOrigins(origins);
-  finishAdminMutation();
+  finishAdminMutation(formData, "/admin/security/cors");
 }

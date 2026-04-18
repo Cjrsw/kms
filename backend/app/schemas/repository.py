@@ -6,6 +6,7 @@ class NoteListItem(BaseModel):
     title: str
     folder_id: int | None
     clearance_level: int
+    created_at: str
     updated_at: str
     attachment_count: int
 
@@ -33,6 +34,7 @@ class RepositoryListItem(BaseModel):
     description: str
     min_clearance_level: int
     note_count: int
+    latest_notes: list[NoteListItem] = []
 
 
 class RepositoryDetailResponse(BaseModel):

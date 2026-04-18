@@ -21,6 +21,15 @@ export type RepositoryListItem = {
   description: string;
   min_clearance_level: number;
   note_count: number;
+  latest_notes: Array<{
+    id: number;
+    title: string;
+    folder_id: number | null;
+    clearance_level: number;
+    created_at: string;
+    updated_at: string;
+    attachment_count: number;
+  }>;
 };
 
 export type RepositoryDetail = {
@@ -40,6 +49,7 @@ export type RepositoryDetail = {
     title: string;
     folder_id: number | null;
     clearance_level: number;
+    created_at: string;
     updated_at: string;
     attachment_count: number;
   }>;
@@ -104,6 +114,7 @@ export type QaAnswer = {
   model_id: number | null;
   model_name: string;
   recall_mode: string;
+  citation_status: "ok" | "partial" | "missing";
   trace_id: string;
   question: string;
   answer: string;
@@ -260,6 +271,11 @@ export type AdminAiModelsResponse = {
   total: number;
   defaults: AdminAiModelDefaults;
   models: AdminAiModel[];
+};
+
+export type AdminQaSystemPrompt = {
+  system_prompt: string;
+  updated_at: string | null;
 };
 
 export type QaAuditItem = {
@@ -853,6 +869,14 @@ export async function updateAdminAiDefaults(payload: {
   embedding_default_model_id: number | null;
 }): Promise<AdminAiModelDefaults> {
   return apiJsonRequest<AdminAiModelDefaults>("/admin/ai/defaults", "PUT", payload);
+}
+
+export async function getAdminQaSystemPrompt(): Promise<AdminQaSystemPrompt> {
+  return apiFetch<AdminQaSystemPrompt>("/admin/ai/system-prompt");
+}
+
+export async function updateAdminQaSystemPrompt(payload: { system_prompt: string }): Promise<AdminQaSystemPrompt> {
+  return apiJsonRequest<AdminQaSystemPrompt>("/admin/ai/system-prompt", "PUT", payload);
 }
 
 export async function updateMyProfile(payload: ProfilePayload): Promise<void> {

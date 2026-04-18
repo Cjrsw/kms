@@ -67,5 +67,6 @@ def _extract_docx_text(file_bytes: bytes) -> str:
     except Exception:  # noqa: BLE001
         return ""
 
+    # Preserve paragraph boundaries so downstream chunking can distinguish sections.
     paragraph_text = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
-    return "\n".join(paragraph_text).strip()
+    return "\n\n".join(paragraph_text).strip()

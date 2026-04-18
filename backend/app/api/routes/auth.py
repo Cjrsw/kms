@@ -18,7 +18,6 @@ from app.schemas.auth import (
     TokenResponse,
     UpdateProfileRequest,
 )
-from app.services.ai_models import get_user_model_preference, set_user_model_preference
 from app.services.auth import login_with_database_user, serialize_current_user
 from app.services.audit import record_auth_audit
 from app.services.token_revocation import parse_jwt_exp, revoke_token_jti
@@ -55,7 +54,15 @@ def get_my_model_preference(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> UserModelPreferenceResponse:
-    return get_user_model_preference(db, user)
+    _ = user
+    _ = db
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error_code": "feature_disabled_fixed_model_policy",
+            "message": "Model preference is disabled by fixed-model policy.",
+        },
+    )
 
 
 @router.put("/me/model-preference", response_model=UserModelPreferenceResponse)
@@ -64,7 +71,16 @@ def update_my_model_preference(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> UserModelPreferenceResponse:
-    return set_user_model_preference(db, user, payload.chat_model_id)
+    _ = payload
+    _ = user
+    _ = db
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error_code": "feature_disabled_fixed_model_policy",
+            "message": "Model preference is disabled by fixed-model policy.",
+        },
+    )
 
 
 @router.put("/me/profile", response_model=CurrentUserResponse)

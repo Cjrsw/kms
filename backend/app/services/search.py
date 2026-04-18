@@ -14,15 +14,16 @@ from app.core.config import get_settings
 from app.models.content import Attachment, Note, NoteChunk, Repository
 from app.models.user import User
 from app.schemas.search import SearchResponse, SearchResultItem
-from app.services.ai_models import ModelInvocationError, invoke_embedding, resolve_embedding_model
-from app.services.vector_store import delete_points_by_note_id, search_similar_chunks, upsert_chunk_vectors
+from app.services.runtime_llm import ModelInvocationError, invoke_embedding, is_embedding_configured
+from app.services.vector_store import delete_points_by_note_id, reset_collection, search_similar_chunks, upsert_chunk_vectors
 
 settings = get_settings()
 
 NOTES_INDEX = "kms_notes"
-MAX_CHUNK_CHARS = 900
-SLIDE_WINDOW_CHARS = 700
-SLIDE_OVERLAP = 180
+TARGET_CHUNK_CHARS = 560
+MAX_CHUNK_CHARS = 700
+CHUNK_OVERLAP_CHARS = 100
+MIN_SIGNAL_TEXT_CHARS = 24
 DEFAULT_TOP_K = 8
 
 SYNONYM_GROUPS: list[tuple[str, ...]] = [
@@ -34,6 +35,32 @@ SYNONYM_GROUPS: list[tuple[str, ...]] = [
 ]
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9]+|[\u4e00-\u9fff]{1,}")
+SENTENCE_RE = re.compile(r".+?(?:[。！？!?；;]+(?:[\"'”’）】])*\s*|$)", re.S)
+PLACEHOLDER_RE = re.compile(r"^(?:test|tmp|demo|sample|测试|测试\d+|示例|样例)[-_a-z0-9]*$", re.I)
+UPPERCASE_HEADING_RE = re.compile(r"^[A-Z0-9][A-Z0-9\s/&().:_-]{0,39}$")
+QA_STOP_TERMS = {
+    "这个",
+    "那个",
+    "这些",
+    "那些",
+    "怎么",
+    "怎样",
+    "如何",
+    "什么",
+    "哪些",
+    "哪个",
+    "一下",
+    "请问",
+    "有关",
+    "关于",
+    "主要",
+    "可以",
+    "现在",
+    "当前",
+    "之间",
+    "是否",
+}
+QA_STOP_CHARS = {"的", "了", "和", "与", "及", "在", "于", "为", "是", "吗", "呢", "么", "个", "些", "哪", "之", "相"}
 
 
 @dataclass
@@ -43,6 +70,25 @@ class ChunkDescriptor:
     source_locator: str
     char_start: int
     char_end: int
+
+
+@dataclass
+class QaRecallChunk:
+    chunk_key: str
+    note_id: int
+    chunk_index: int
+    source_type: str
+    repository_slug: str
+    repository_name: str
+    title: str
+    author_name: str
+    chunk_text: str
+    snippet: str
+    clearance_level: int
+    attachment_count: int
+    score: float
+    updated_at: str
+    hit_mode: str = "keyword"
 
 
 def get_es_client() -> Elasticsearch:
@@ -79,7 +125,7 @@ def ensure_notes_index() -> None:
     )
 
 
-def sync_all_notes(db: Session) -> None:
+def sync_all_notes(db: Session, *, include_vector: bool = False) -> None:
     ensure_notes_index()
     notes = (
         db.query(Note)
@@ -92,14 +138,23 @@ def sync_all_notes(db: Session) -> None:
         .all()
     )
     for note in notes:
-        _upsert_note_document(db, note, include_vector=False)
+        _upsert_note_document(db, note, include_vector=include_vector)
 
 
-def rebuild_notes_index(db: Session) -> None:
+def rebuild_notes_index(db: Session, *, include_vector: bool = False) -> None:
     client = get_es_client()
     if client.indices.exists(index=NOTES_INDEX):
         client.indices.delete(index=NOTES_INDEX)
-    sync_all_notes(db)
+    if include_vector:
+        reset_collection()
+        db.query(NoteChunk).delete()
+        db.commit()
+        ensure_notes_index()
+        note_ids = [int(note_id) for note_id, in db.query(Note.id).order_by(Note.id.asc()).all()]
+        for note_id in note_ids:
+            index_note(db, note_id)
+        return
+    sync_all_notes(db, include_vector=False)
 
 
 def index_note(db: Session, note_id: int) -> None:
@@ -144,6 +199,7 @@ def search_notes(
     client = get_es_client()
 
     bool_filter: list[dict[str, Any]] = [{"range": {"clearance_level": {"lte": user.clearance_level}}}]
+    must_not: list[dict[str, Any]] = []
     if repository_slug or (author_keyword and author_keyword.strip()) or file_type != "all":
         filtered_note_ids = _query_note_ids_by_filters(
             db=db,
@@ -155,6 +211,15 @@ def search_notes(
         if not filtered_note_ids:
             return SearchResponse(total=0, page=page, page_size=page_size, items=[])
         bool_filter.append({"terms": {"note_id": filtered_note_ids}})
+    placeholder_note_ids = _query_placeholder_note_ids(
+        db=db,
+        user=user,
+        repository_slug=repository_slug,
+        author_keyword=author_keyword,
+        file_type=file_type,
+    )
+    if placeholder_note_ids:
+        must_not.append({"terms": {"note_id": placeholder_note_ids}})
 
     if updated_from or updated_to:
         range_filter: dict[str, str] = {}
@@ -171,16 +236,22 @@ def search_notes(
                 "should": _build_weighted_should_queries(normalized_query),
                 "minimum_should_match": 1,
                 "filter": bool_filter,
+                "must_not": must_not,
             }
         }
     else:
-        query_block = {"bool": {"must": [{"match_all": {}}], "filter": bool_filter}}
+        query_block = {"bool": {"must": [{"match_all": {}}], "filter": bool_filter, "must_not": must_not}}
 
     offset = (page - 1) * page_size
+    candidate_size = page_size
+    candidate_offset = offset
+    if normalized_query:
+        candidate_size = min(max(offset + page_size * 6, 60), 240)
+        candidate_offset = 0
     response = client.search(
         index=NOTES_INDEX,
-        from_=offset,
-        size=page_size,
+        from_=candidate_offset,
+        size=candidate_size,
         track_total_hits=True,
         query=query_block,
         sort=_build_sort(sort_by),
@@ -200,6 +271,13 @@ def search_notes(
 
     unique_total = int((response.get("aggregations", {}).get("unique_notes", {}) or {}).get("value", 0))
     hits = response.get("hits", {}).get("hits", [])
+    if normalized_query:
+        ranked_hits = _filter_and_rank_search_hits(hits, normalized_query)
+        if ranked_hits:
+            unique_total = len(ranked_hits)
+            hits = ranked_hits[offset : offset + page_size]
+        else:
+            hits = hits[offset : offset + page_size]
     items = [
         _hit_to_search_item(hit, hit_mode="keyword")
         for hit in hits
@@ -215,48 +293,75 @@ def hybrid_recall_for_qa(
     query: str,
     repository_slug: str | None,
     top_k: int | None = None,
-) -> tuple[list[SearchResultItem], str]:
+) -> tuple[list[QaRecallChunk], str]:
     safe_top_k = max(1, top_k or DEFAULT_TOP_K)
+    query_terms = _build_qa_signal_terms(query)
 
-    keyword_resp = search_notes(
+    keyword_chunks = _search_keyword_chunks_for_qa(
         db=db,
         user=user,
         query=query,
         repository_slug=repository_slug,
-        page=1,
-        page_size=max(safe_top_k * 2, 10),
+        limit=max(safe_top_k * 6, 24),
     )
-    keyword_items = keyword_resp.items
-    if not keyword_items:
-        return [], "keyword"
 
-    fused_score: dict[int, float] = {}
-    fused_item: dict[int, SearchResultItem] = {}
-    hit_modes: dict[int, set[str]] = {}
-    for idx, item in enumerate(keyword_items):
-        fused_score[item.note_id] = fused_score.get(item.note_id, 0.0) + 1.0 / (60 + idx + 1)
-        fused_item[item.note_id] = item
-        hit_modes.setdefault(item.note_id, set()).add("keyword")
+    fused_score: dict[str, float] = {}
+    fused_item: dict[str, QaRecallChunk] = {}
+    hit_modes: dict[str, set[str]] = {}
+    for idx, chunk in enumerate(keyword_chunks):
+        key = chunk.chunk_key
+        fused_score[key] = fused_score.get(key, 0.0) + 1.0 / (60 + idx + 1)
+        fused_item[key] = chunk
+        hit_modes.setdefault(key, set()).add("keyword")
 
-    embedding_model = resolve_embedding_model(db)
-    if embedding_model is None:
-        final = _sort_fused_items(fused_score, fused_item, hit_modes, limit=safe_top_k)
+    if not is_embedding_configured():
+        if not fused_score:
+            return [], "keyword"
+        final = _sort_fused_chunks(
+            fused_score,
+            fused_item,
+            hit_modes,
+            query_terms=query_terms,
+            limit=max(safe_top_k * 3, safe_top_k),
+            per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
+        )
+        final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
         return final, "keyword"
 
     try:
-        query_vector = invoke_embedding(embedding_model, text=query, trace_id="")
+        query_vector = invoke_embedding(text=query, trace_id="")
     except ModelInvocationError:
-        final = _sort_fused_items(fused_score, fused_item, hit_modes, limit=safe_top_k)
+        if not fused_score:
+            return [], "keyword"
+        final = _sort_fused_chunks(
+            fused_score,
+            fused_item,
+            hit_modes,
+            query_terms=query_terms,
+            limit=max(safe_top_k * 3, safe_top_k),
+            per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
+        )
+        final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
         return final, "keyword"
 
     vector_hits = search_similar_chunks(
         vector=query_vector,
         max_clearance_level=user.clearance_level,
         repository_slug=repository_slug,
-        limit=max(safe_top_k * 4, 12),
+        limit=max(safe_top_k * 8, 36),
     )
     if not vector_hits:
-        final = _sort_fused_items(fused_score, fused_item, hit_modes, limit=safe_top_k)
+        if not fused_score:
+            return [], "keyword"
+        final = _sort_fused_chunks(
+            fused_score,
+            fused_item,
+            hit_modes,
+            query_terms=query_terms,
+            limit=max(safe_top_k * 3, safe_top_k),
+            per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
+        )
+        final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
         return final, "keyword"
 
     vector_note_ids: list[int] = []
@@ -269,19 +374,113 @@ def hybrid_recall_for_qa(
 
     for idx, hit in enumerate(vector_hits):
         payload = hit.get("payload") or {}
-        note_id = payload.get("note_id")
-        if not isinstance(note_id, int):
+        payload_note_id = payload.get("note_id")
+        fallback = extra_note_map.get(payload_note_id) if isinstance(payload_note_id, int) else None
+        from_vector = _build_qa_chunk_from_vector_payload(payload, fallback)
+        if from_vector is None:
             continue
-        fused_score[note_id] = fused_score.get(note_id, 0.0) + 1.0 / (60 + idx + 1)
-        hit_modes.setdefault(note_id, set()).add("vector")
-        if note_id not in fused_item:
-            from_vector = _build_item_from_vector_payload(payload, extra_note_map.get(note_id))
-            if from_vector:
-                fused_item[note_id] = from_vector
+        key = from_vector.chunk_key
+        fused_score[key] = fused_score.get(key, 0.0) + 1.0 / (60 + idx + 1)
+        hit_modes.setdefault(key, set()).add("vector")
+        if key not in fused_item:
+            fused_item[key] = from_vector
 
-    final = _sort_fused_items(fused_score, fused_item, hit_modes, limit=safe_top_k)
+    final = _sort_fused_chunks(
+        fused_score,
+        fused_item,
+        hit_modes,
+        query_terms=query_terms,
+        limit=max(safe_top_k * 3, safe_top_k),
+        per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
+    )
+    final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
+    if not final:
+        return [], "keyword"
     has_vector = any(item.hit_mode in {"vector", "hybrid"} for item in final)
-    return final, ("hybrid" if has_vector else "keyword")
+    has_keyword = any(item.hit_mode in {"keyword", "hybrid"} for item in final)
+    if has_vector and has_keyword:
+        recall_mode = "hybrid"
+    elif has_vector:
+        recall_mode = "vector"
+    else:
+        recall_mode = "keyword"
+    return final, recall_mode
+
+
+def _search_keyword_chunks_for_qa(
+    db: Session,
+    *,
+    user: User,
+    query: str,
+    repository_slug: str | None,
+    limit: int,
+) -> list[QaRecallChunk]:
+    normalized_query = query.strip()
+    if not normalized_query:
+        return []
+    query_terms = _build_qa_signal_terms(normalized_query)
+
+    ensure_notes_index()
+    client = get_es_client()
+    bool_filter: list[dict[str, Any]] = [{"range": {"clearance_level": {"lte": user.clearance_level}}}]
+    if repository_slug:
+        bool_filter.append({"term": {"repository_slug": repository_slug}})
+
+    response = client.search(
+        index=NOTES_INDEX,
+        size=max(limit, 1),
+        track_total_hits=False,
+        query={
+            "bool": {
+                "should": _build_weighted_should_queries(normalized_query),
+                "minimum_should_match": 1,
+                "filter": bool_filter,
+            }
+        },
+        sort=["_score", {"updated_at": "desc"}],
+        highlight={
+            "fields": {
+                "content_text": {"fragment_size": 220, "number_of_fragments": 1},
+                "title": {"number_of_fragments": 1},
+            }
+        },
+    )
+
+    chunks: list[QaRecallChunk] = []
+    for hit in response.get("hits", {}).get("hits", []):
+        source = hit.get("_source") or {}
+        note_id = int(source.get("note_id", 0))
+        chunk_index = int(source.get("chunk_index", -1))
+        source_type = str(source.get("source_type", "note"))
+        content_text = str(source.get("content_text", "")).strip()
+        if note_id <= 0 or chunk_index < 0 or not content_text:
+            continue
+        title = str(source.get("title", ""))
+        if _is_low_signal_chunk(content_text, title=title):
+            continue
+        if query_terms and _compute_qa_query_signal(title=title, text=content_text, query_terms=query_terms) <= 0:
+            continue
+        chunk_key = f"{note_id}:{chunk_index}:{source_type}"
+        chunks.append(
+            QaRecallChunk(
+                chunk_key=chunk_key,
+                note_id=note_id,
+                chunk_index=chunk_index,
+                source_type=source_type,
+                repository_slug=str(source.get("repository_slug", "")),
+                repository_name=str(source.get("repository_name", "")),
+                title=title,
+                author_name=str(source.get("author_name", "system")),
+                chunk_text=content_text,
+                snippet=_build_snippet(hit, source),
+                clearance_level=int(source.get("clearance_level", 1)),
+                attachment_count=int(source.get("attachment_count", 0)),
+                score=float(hit.get("_score") or 0.0),
+                updated_at=str(source.get("updated_at", "")),
+                hit_mode="keyword",
+            )
+        )
+    return chunks
 
 
 def suggest_search_queries(
@@ -418,6 +617,94 @@ def _query_note_ids_by_filters(
     return [int(row[0]) for row in rows]
 
 
+def _query_placeholder_note_ids(
+    db: Session,
+    user: User,
+    repository_slug: str | None,
+    author_keyword: str | None,
+    file_type: str,
+) -> list[int]:
+    query = (
+        db.query(Note.id, Note.title, Note.content_text)
+        .join(Repository, Repository.id == Note.repository_id)
+        .filter(Note.min_clearance_level <= user.clearance_level)
+    )
+    if repository_slug:
+        query = query.filter(Repository.slug == repository_slug)
+    if author_keyword and author_keyword.strip():
+        author = author_keyword.strip().lower()
+        query = query.filter(func.lower(Note.author_name).like(f"%{author}%"))
+    if file_type == "note":
+        query = query.filter(~Note.attachments.any())
+    elif file_type in {"pdf", "docx"}:
+        query = query.filter(Note.attachments.any(func.lower(Attachment.file_type) == file_type))
+
+    rows = query.all()
+    placeholder_ids: list[int] = []
+    for note_id, title, content_text in rows:
+        if _is_placeholder_note(title=title or "", content_text=content_text or ""):
+            placeholder_ids.append(int(note_id))
+    return placeholder_ids
+
+
+def _is_placeholder_note(*, title: str, content_text: str) -> bool:
+    title_compact = re.sub(r"\s+", "", title).strip().lower()
+    content_compact = re.sub(r"\s+", "", content_text).strip().lower()
+    if not title_compact:
+        return False
+    if title_compact == content_compact and _is_low_signal_chunk(content_text, title=title):
+        return True
+    return bool(PLACEHOLDER_RE.fullmatch(title_compact) and _is_low_signal_chunk(content_text or title, title=title))
+
+
+def _filter_and_rank_search_hits(hits: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+    query_terms = _build_qa_signal_terms(query)
+    normalized_query = re.sub(r"\s+", "", query).strip().lower()
+    scored_hits: list[tuple[float, float, dict[str, Any]]] = []
+    positive_exists = False
+    for hit in hits:
+        source = hit.get("_source") or {}
+        title = str(source.get("title", ""))
+        text = str(source.get("content_text", ""))
+        signal = _compute_search_query_signal(
+            title=title,
+            text=text,
+            normalized_query=normalized_query,
+            query_terms=query_terms,
+        )
+        if signal > 0:
+            positive_exists = True
+        scored_hits.append((signal, float(hit.get("_score") or 0.0), hit))
+    if positive_exists:
+        scored_hits = [item for item in scored_hits if item[0] > 0]
+    scored_hits.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item[2] for item in scored_hits]
+
+
+def _compute_search_query_signal(
+    *,
+    title: str,
+    text: str,
+    normalized_query: str,
+    query_terms: list[str],
+) -> float:
+    title_compact = re.sub(r"\s+", "", title).strip().lower()
+    text_compact = re.sub(r"\s+", "", text).strip().lower()
+    score = 0.0
+    if normalized_query:
+        if normalized_query in title_compact:
+            score += 8.0
+        elif normalized_query in text_compact:
+            score += 4.0
+    for term in query_terms:
+        if term in title_compact:
+            score += 2.0
+            continue
+        if term in text_compact:
+            score += 0.8
+    return score
+
+
 def _build_sort(sort_by: str) -> list[Any]:
     if sort_by == "updated_desc":
         return [{"updated_at": "desc"}, "_score"]
@@ -474,6 +761,51 @@ def _tokenize_query(query: str) -> list[str]:
     return unique
 
 
+def _build_qa_signal_terms(query: str) -> list[str]:
+    signals: list[str] = []
+    seen: set[str] = set()
+    for token in TOKEN_RE.findall(query.lower()):
+        normalized = token.strip()
+        if not normalized:
+            continue
+        if re.fullmatch(r"[\u4e00-\u9fff]+", normalized):
+            if len(normalized) == 2:
+                if normalized not in QA_STOP_TERMS and normalized not in seen:
+                    seen.add(normalized)
+                    signals.append(normalized)
+                continue
+            if len(normalized) < 2:
+                continue
+            for idx in range(len(normalized) - 1):
+                piece = normalized[idx : idx + 2]
+                if any(char in QA_STOP_CHARS for char in piece):
+                    continue
+                if piece in QA_STOP_TERMS or piece in seen:
+                    continue
+                seen.add(piece)
+                signals.append(piece)
+            continue
+        if len(normalized) >= 2 and normalized not in QA_STOP_TERMS and normalized not in seen:
+            seen.add(normalized)
+            signals.append(normalized)
+    return signals
+
+
+def _compute_qa_query_signal(*, title: str, text: str, query_terms: list[str]) -> float:
+    if not query_terms:
+        return 0.0
+    title_compact = re.sub(r"\s+", "", title).strip().lower()
+    text_compact = re.sub(r"\s+", "", text).strip().lower()
+    score = 0.0
+    for term in query_terms:
+        if term in title_compact:
+            score += 2.0
+            continue
+        if term in text_compact:
+            score += 1.0
+    return score
+
+
 def _token_boost(token: str) -> float:
     if re.fullmatch(r"[\u4e00-\u9fff]+", token):
         return 1.4 if len(token) >= 2 else 1.1
@@ -499,26 +831,37 @@ def _hit_to_search_item(hit: dict[str, Any], *, hit_mode: str) -> SearchResultIt
     )
 
 
-def _build_item_from_vector_payload(payload: dict[str, Any], fallback: dict[str, Any] | None) -> SearchResultItem | None:
+def _build_qa_chunk_from_vector_payload(payload: dict[str, Any], fallback: dict[str, Any] | None) -> QaRecallChunk | None:
     note_id = payload.get("note_id")
-    if not isinstance(note_id, int):
+    chunk_index = payload.get("chunk_index")
+    if not isinstance(note_id, int) or not isinstance(chunk_index, int):
         return None
+
+    source_type = str(payload.get("source_type") or "note")
     repository_slug = str(payload.get("repository_slug") or (fallback or {}).get("repository_slug") or "")
     repository_name = str(payload.get("repository_name") or (fallback or {}).get("repository_name") or "")
     title = str(payload.get("title") or (fallback or {}).get("title") or f"Note #{note_id}")
-    author_name = str(payload.get("author_name") or (fallback or {}).get("author_name") or "系统")
+    author_name = str(payload.get("author_name") or (fallback or {}).get("author_name") or "system")
     clearance = int(payload.get("clearance_level") or (fallback or {}).get("clearance_level") or 1)
     updated_at = str(payload.get("updated_at") or (fallback or {}).get("updated_at") or "")
     attachment_count = int(payload.get("attachment_count") or (fallback or {}).get("attachment_count") or 0)
     chunk_text = str(payload.get("chunk_text") or "").strip()
-    snippet = chunk_text[:180] if chunk_text else title
-    return SearchResultItem(
+    if not chunk_text:
+        return None
+    if _is_low_signal_chunk(chunk_text, title=title):
+        return None
+    chunk_key = f"{note_id}:{chunk_index}:{source_type}"
+    return QaRecallChunk(
+        chunk_key=chunk_key,
         note_id=note_id,
+        chunk_index=chunk_index,
+        source_type=source_type,
         repository_slug=repository_slug,
         repository_name=repository_name,
         title=title,
         author_name=author_name,
-        snippet=snippet,
+        chunk_text=chunk_text,
+        snippet=chunk_text,
         clearance_level=clearance,
         attachment_count=attachment_count,
         score=0.0,
@@ -551,29 +894,59 @@ def _query_notes_for_vector(db: Session, user: User, note_ids: list[int]) -> dic
     return result
 
 
-def _sort_fused_items(
-    score_map: dict[int, float],
-    item_map: dict[int, SearchResultItem],
-    hit_modes: dict[int, set[str]],
+def _sort_fused_chunks(
+    score_map: dict[str, float],
+    item_map: dict[str, QaRecallChunk],
+    hit_modes: dict[str, set[str]],
     *,
+    query_terms: list[str],
     limit: int,
-) -> list[SearchResultItem]:
-    ordered_ids = sorted(score_map.keys(), key=lambda note_id: score_map[note_id], reverse=True)[:limit]
-    items: list[SearchResultItem] = []
-    for note_id in ordered_ids:
-        item = item_map.get(note_id)
+    per_note_limit: int,
+) -> list[QaRecallChunk]:
+    reranked_score: dict[str, float] = {}
+    for key, base_score in score_map.items():
+        item = item_map.get(key)
         if item is None:
             continue
-        modes = hit_modes.get(note_id, {"keyword"})
+        modes = hit_modes.get(key, {"keyword"})
+        signal_score = _compute_qa_query_signal(title=item.title, text=item.chunk_text, query_terms=query_terms)
+        mode_bonus = 0.002 if "keyword" in modes and "vector" in modes else 0.0
+        reranked_score[key] = base_score + min(signal_score, 6.0) * 0.004 + mode_bonus
+    ordered_keys = sorted(reranked_score.keys(), key=lambda key: reranked_score[key], reverse=True)
+    items: list[QaRecallChunk] = []
+    note_counts: dict[int, int] = {}
+    for key in ordered_keys:
+        if len(items) >= limit:
+            break
+        item = item_map.get(key)
+        if item is None:
+            continue
+        used_for_note = note_counts.get(item.note_id, 0)
+        if used_for_note >= per_note_limit:
+            continue
+
+        modes = hit_modes.get(key, {"keyword"})
         if "keyword" in modes and "vector" in modes:
             item.hit_mode = "hybrid"
         elif "vector" in modes:
             item.hit_mode = "vector"
         else:
             item.hit_mode = "keyword"
-        item.score = score_map.get(note_id, item.score)
+        item.score = reranked_score.get(key, score_map.get(key, item.score))
         items.append(item)
+        note_counts[item.note_id] = used_for_note + 1
     return items
+
+
+def _prefer_positive_signal_chunks(chunks: list[QaRecallChunk], *, query_terms: list[str]) -> list[QaRecallChunk]:
+    if not chunks or not query_terms:
+        return chunks
+    positive = [
+        item
+        for item in chunks
+        if _compute_qa_query_signal(title=item.title, text=item.chunk_text, query_terms=query_terms) > 0
+    ]
+    return positive if positive else chunks
 
 
 def _upsert_note_document(db: Session, note: Note, *, include_vector: bool) -> None:
@@ -648,14 +1021,14 @@ def _upsert_note_document(db: Session, note: Note, *, include_vector: bool) -> N
         client.index(index=NOTES_INDEX, id=es_id, document=document, refresh=False)
     db.flush()
 
-    embedding_model = resolve_embedding_model(db) if include_vector else None
-    if embedding_model is not None:
+    should_index_vector = include_vector and is_embedding_configured()
+    if should_index_vector:
         vectors: list[list[float]] = []
         payloads: list[dict[str, Any]] = []
         valid_chunks: list[NoteChunk] = []
         for chunk_row in note_chunks:
             try:
-                vector = invoke_embedding(embedding_model, text=chunk_row.content_text, trace_id="")
+                vector = invoke_embedding(text=chunk_row.content_text, trace_id="")
             except ModelInvocationError:
                 continue
             vectors.append(vector)
@@ -667,7 +1040,7 @@ def _upsert_note_document(db: Session, note: Note, *, include_vector: bool) -> N
                     "title": note.title,
                     "author_name": (note.author_name or "").strip() or "系统",
                     "chunk_index": chunk_row.chunk_index,
-                    "chunk_text": chunk_row.content_text[:1200],
+                    "chunk_text": chunk_row.content_text,
                     "source_type": chunk_row.source_type,
                     "clearance_level": note.min_clearance_level,
                     "attachment_count": len(note.attachments),
@@ -733,33 +1106,73 @@ def _build_pdf_chunks(attachment_id: int, file_name: str, text: str) -> list[Chu
 
 
 def _build_docx_chunks(attachment_id: int, file_name: str, text: str) -> list[ChunkDescriptor]:
-    paragraphs = [line.strip() for line in re.split(r"\n{2,}|\r\n\r\n", text) if line.strip()]
+    paragraphs = _split_paragraph_entries(text)
     if not paragraphs:
-        paragraphs = [text]
+        paragraphs = [(1, text, 0, len(text))]
     chunks: list[ChunkDescriptor] = []
-    cursor = 0
     current_heading = ""
-    for paragraph_index, paragraph in enumerate(paragraphs, start=1):
-        if _looks_like_heading(paragraph):
-            current_heading = paragraph
-            cursor += len(paragraph) + 1
-            continue
-        scoped_text = f"{current_heading}\n{paragraph}".strip() if current_heading else paragraph
+    buffered_parts: list[str] = []
+    buffered_start = 0
+    buffered_end = 0
+    buffered_paragraph_start = 0
+    buffered_paragraph_end = 0
+
+    def flush_buffer() -> None:
+        nonlocal buffered_parts, buffered_start, buffered_end, buffered_paragraph_start, buffered_paragraph_end
+        if not buffered_parts:
+            return
+        merged_body = "\n\n".join(buffered_parts).strip()
+        if not merged_body:
+            buffered_parts = []
+            return
+        scoped_text = f"{current_heading}\n{merged_body}".strip() if current_heading else merged_body
         locator = {
             "attachment_id": attachment_id,
             "file_name": file_name,
-            "paragraph": paragraph_index,
+            "paragraph_start": buffered_paragraph_start,
+            "paragraph_end": buffered_paragraph_end,
             "heading": current_heading,
         }
         chunks.extend(
-            _build_chunks_from_text(
+            _build_chunks_from_block(
                 scoped_text,
                 source_type="attachment_docx",
-                locator_base=locator,
-                global_offset=cursor,
+                locator=locator,
+                base_start=buffered_start,
             )
         )
-        cursor += len(paragraph) + 1
+        buffered_parts = []
+        buffered_start = 0
+        buffered_end = 0
+        buffered_paragraph_start = 0
+        buffered_paragraph_end = 0
+
+    for paragraph_index, paragraph, paragraph_start, paragraph_end in paragraphs:
+        if _looks_like_heading(paragraph):
+            flush_buffer()
+            current_heading = paragraph
+            continue
+
+        candidate_parts = buffered_parts + [paragraph]
+        candidate_body = "\n\n".join(candidate_parts).strip()
+        candidate_length = len(candidate_body) + (len(current_heading) + 1 if current_heading else 0)
+        if buffered_parts and candidate_length > MAX_CHUNK_CHARS:
+            flush_buffer()
+            candidate_parts = [paragraph]
+            candidate_body = paragraph
+
+        if not buffered_parts:
+            buffered_start = paragraph_start
+            buffered_paragraph_start = paragraph_index
+        buffered_parts = candidate_parts
+        buffered_end = paragraph_end
+        buffered_paragraph_end = paragraph_index
+
+        current_length = len(candidate_body) + (len(current_heading) + 1 if current_heading else 0)
+        if current_length >= TARGET_CHUNK_CHARS:
+            flush_buffer()
+
+    flush_buffer()
     return chunks
 
 
@@ -770,55 +1183,64 @@ def _build_chunks_from_text(
     locator_base: dict[str, Any],
     global_offset: int = 0,
 ) -> list[ChunkDescriptor]:
-    paragraphs = [segment.strip() for segment in re.split(r"\n{2,}|\r\n\r\n", text) if segment.strip()]
+    paragraphs = _split_paragraph_entries(text)
     if not paragraphs:
-        paragraphs = [text.strip()]
+        paragraphs = [(1, text.strip(), 0, len(text.strip()))]
     chunks: list[ChunkDescriptor] = []
-    seek_pos = 0
-    for paragraph_index, paragraph in enumerate(paragraphs, start=1):
+    for paragraph_index, paragraph, local_start, local_end in paragraphs:
         if not paragraph:
             continue
-        local_start = text.find(paragraph, seek_pos)
-        if local_start < 0:
-            local_start = seek_pos
-        local_end = local_start + len(paragraph)
-        seek_pos = local_end
         locator = dict(locator_base)
         locator["paragraph"] = paragraph_index
 
         if len(paragraph) <= MAX_CHUNK_CHARS:
-            chunks.append(
-                ChunkDescriptor(
-                    text=paragraph,
-                    source_type=source_type,
-                    source_locator=json.dumps(locator, ensure_ascii=False),
-                    char_start=global_offset + local_start,
-                    char_end=global_offset + local_end,
-                )
+            descriptor = _make_chunk_descriptor(
+                text=paragraph,
+                source_type=source_type,
+                locator=locator,
+                char_start=global_offset + local_start,
+                char_end=global_offset + local_end,
             )
+            if descriptor is not None:
+                chunks.append(descriptor)
             continue
 
-        window_start = 0
-        while window_start < len(paragraph):
-            window_end = min(len(paragraph), window_start + MAX_CHUNK_CHARS)
-            window_text = paragraph[window_start:window_end].strip()
-            if window_text:
-                locator_with_window = dict(locator)
-                locator_with_window["window_start"] = window_start
-                locator_with_window["window_end"] = window_end
-                chunks.append(
-                    ChunkDescriptor(
-                        text=window_text,
-                        source_type=source_type,
-                        source_locator=json.dumps(locator_with_window, ensure_ascii=False),
-                        char_start=global_offset + local_start + window_start,
-                        char_end=global_offset + local_start + window_end,
-                    )
-                )
-            if window_end >= len(paragraph):
-                break
-            window_start += max(SLIDE_WINDOW_CHARS - SLIDE_OVERLAP, 1)
+        chunks.extend(
+            _build_sentence_aware_chunks(
+                paragraph,
+                source_type=source_type,
+                locator=locator,
+                base_start=global_offset + local_start,
+            )
+        )
     return chunks
+
+
+def _build_chunks_from_block(
+    text: str,
+    *,
+    source_type: str,
+    locator: dict[str, Any],
+    base_start: int,
+) -> list[ChunkDescriptor]:
+    normalized = text.strip()
+    if not normalized:
+        return []
+    if len(normalized) <= MAX_CHUNK_CHARS:
+        descriptor = _make_chunk_descriptor(
+            text=normalized,
+            source_type=source_type,
+            locator=locator,
+            char_start=base_start,
+            char_end=base_start + len(normalized),
+        )
+        return [descriptor] if descriptor is not None else []
+    return _build_sentence_aware_chunks(
+        normalized,
+        source_type=source_type,
+        locator=locator,
+        base_start=base_start,
+    )
 
 
 def _looks_like_heading(text: str) -> bool:
@@ -829,7 +1251,193 @@ def _looks_like_heading(text: str) -> bool:
         return True
     if value.endswith((":", "：")):
         return True
-    if value.isupper() and len(value) <= 25:
+    if len(value) <= 25 and UPPERCASE_HEADING_RE.fullmatch(value):
+        return True
+    return False
+
+
+def _build_sentence_aware_chunks(
+    paragraph: str,
+    *,
+    source_type: str,
+    locator: dict[str, Any],
+    base_start: int,
+) -> list[ChunkDescriptor]:
+    sentences = _split_sentence_spans(paragraph)
+    if len(sentences) <= 1:
+        return _build_sliding_window_chunks(
+            paragraph,
+            source_type=source_type,
+            locator=locator,
+            base_start=base_start,
+        )
+    if any((end - start) > MAX_CHUNK_CHARS for _, start, end in sentences):
+        return _build_sliding_window_chunks(
+            paragraph,
+            source_type=source_type,
+            locator=locator,
+            base_start=base_start,
+        )
+
+    chunks: list[ChunkDescriptor] = []
+    cursor = 0
+    while cursor < len(sentences):
+        start_cursor = cursor
+        chunk_start = sentences[cursor][1]
+        chunk_end = sentences[cursor][2]
+        while cursor < len(sentences):
+            proposed_end = sentences[cursor][2]
+            proposed_length = proposed_end - chunk_start
+            if proposed_length > MAX_CHUNK_CHARS and cursor > start_cursor:
+                break
+            chunk_end = proposed_end
+            cursor += 1
+            if proposed_length >= TARGET_CHUNK_CHARS:
+                break
+
+        descriptor = _make_chunk_descriptor(
+            text=paragraph[chunk_start:chunk_end],
+            source_type=source_type,
+            locator={
+                **locator,
+                "sentence_start": start_cursor,
+                "sentence_end": max(cursor - 1, start_cursor),
+            },
+            char_start=base_start + chunk_start,
+            char_end=base_start + chunk_end,
+        )
+        if descriptor is not None:
+            chunks.append(descriptor)
+
+        if cursor >= len(sentences):
+            break
+        cursor = max(_rewind_sentence_cursor(sentences, cursor), start_cursor + 1)
+
+    if chunks:
+        return chunks
+    return _build_sliding_window_chunks(
+        paragraph,
+        source_type=source_type,
+        locator=locator,
+        base_start=base_start,
+    )
+
+
+def _build_sliding_window_chunks(
+    paragraph: str,
+    *,
+    source_type: str,
+    locator: dict[str, Any],
+    base_start: int,
+) -> list[ChunkDescriptor]:
+    chunks: list[ChunkDescriptor] = []
+    window_start = 0
+    step = max(MAX_CHUNK_CHARS - CHUNK_OVERLAP_CHARS, 1)
+    while window_start < len(paragraph):
+        window_end = min(len(paragraph), window_start + MAX_CHUNK_CHARS)
+        descriptor = _make_chunk_descriptor(
+            text=paragraph[window_start:window_end],
+            source_type=source_type,
+            locator={
+                **locator,
+                "window_start": window_start,
+                "window_end": window_end,
+            },
+            char_start=base_start + window_start,
+            char_end=base_start + window_end,
+        )
+        if descriptor is not None:
+            chunks.append(descriptor)
+        if window_end >= len(paragraph):
+            break
+        window_start += step
+    return chunks
+
+
+def _split_sentence_spans(text: str) -> list[tuple[str, int, int]]:
+    spans: list[tuple[str, int, int]] = []
+    for match in SENTENCE_RE.finditer(text):
+        raw = match.group(0)
+        if not raw or not raw.strip():
+            continue
+        leading = len(raw) - len(raw.lstrip())
+        trailing = len(raw.rstrip())
+        start = match.start() + leading
+        end = match.start() + trailing
+        if end <= start:
+            continue
+        spans.append((text[start:end], start, end))
+    return spans
+
+
+def _split_paragraph_entries(text: str) -> list[tuple[int, str, int, int]]:
+    normalized = text.replace("\r\n", "\n")
+    if not normalized.strip():
+        return []
+    parts = [segment.strip() for segment in re.split(r"\n{2,}", normalized) if segment.strip()]
+    if not parts:
+        return []
+    entries: list[tuple[int, str, int, int]] = []
+    seek_pos = 0
+    for index, part in enumerate(parts, start=1):
+        start = normalized.find(part, seek_pos)
+        if start < 0:
+            start = seek_pos
+        end = start + len(part)
+        seek_pos = end
+        entries.append((index, part, start, end))
+    return entries
+
+
+def _rewind_sentence_cursor(sentences: list[tuple[str, int, int]], cursor: int) -> int:
+    overlap = 0
+    probe = cursor - 1
+    while probe >= 0 and overlap < CHUNK_OVERLAP_CHARS:
+        overlap += len(sentences[probe][0])
+        probe -= 1
+    return max(probe + 1, 0)
+
+
+def _make_chunk_descriptor(
+    *,
+    text: str,
+    source_type: str,
+    locator: dict[str, Any],
+    char_start: int,
+    char_end: int,
+) -> ChunkDescriptor | None:
+    normalized = text.strip()
+    if not normalized:
+        return None
+    return ChunkDescriptor(
+        text=normalized,
+        source_type=source_type,
+        source_locator=json.dumps(locator, ensure_ascii=False),
+        char_start=char_start,
+        char_end=char_end,
+    )
+
+
+def _is_low_signal_chunk(text: str, *, title: str = "") -> bool:
+    compact = re.sub(r"\s+", "", text).strip().lower()
+    if not compact:
+        return True
+    if compact.isdigit() and len(compact) <= 8:
+        return True
+    if len(compact) >= MIN_SIGNAL_TEXT_CHARS:
+        return False
+    if PLACEHOLDER_RE.fullmatch(compact):
+        return True
+    title_compact = re.sub(r"\s+", "", title).strip().lower()
+    if title_compact and title_compact == compact and len(compact) <= 4:
+        return True
+    if title_compact.isdigit() and len(title_compact) <= 8:
+        return True
+    if title_compact and PLACEHOLDER_RE.fullmatch(title_compact):
+        return True
+    if len(set(compact)) <= 2 and len(compact) >= 4:
+        return True
+    if compact.startswith(("tmp", "test", "demo")) and len(compact) <= 16:
         return True
     return False
 

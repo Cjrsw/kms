@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -8,8 +9,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.ai import QaAvailableModelsResponse
 from app.schemas.qa import QaAskRequest, QaResponseEnvelope
-from app.services.ai_models import get_admin_model_defaults, get_enabled_chat_model_options, get_user_model_preference
-from app.services.qa import answer_question
+from app.services.qa import answer_question, stream_answer_question
+from app.services.runtime_llm import get_chat_model_name
 
 router = APIRouter()
 
@@ -19,13 +20,19 @@ def qa_models(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> QaAvailableModelsResponse:
-    options = get_enabled_chat_model_options(db)
-    preference = get_user_model_preference(db, user)
-    defaults = get_admin_model_defaults(db)
+    _ = user
+    _ = db
     return QaAvailableModelsResponse(
-        models=options,
-        user_default_model_id=preference.chat_model_id,
-        system_default_model_id=defaults.chat_default_model_id,
+        models=[
+            {
+                "id": 0,
+                "name": "fixed-chat-model",
+                "model_name": get_chat_model_name(),
+                "provider": "openai_compatible",
+            }
+        ],
+        user_default_model_id=None,
+        system_default_model_id=None,
     )
 
 
@@ -41,6 +48,26 @@ def qa_post(
         question=payload.question,
         repository_slug=(payload.repository_slug or "").strip() or None,
         model_id=payload.model_id,
+    )
+
+
+@router.post("/stream")
+async def qa_stream(
+    payload: QaAskRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    generator = stream_answer_question(
+        db=db,
+        user=user,
+        question=payload.question,
+        repository_slug=(payload.repository_slug or "").strip() or None,
+        model_id=payload.model_id,
+    )
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

@@ -11,19 +11,16 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.cors_state import get_allowed_origins, set_allowed_origins
+from app.core.config import get_settings
 from app.core.deps import require_role
 from app.core.security import get_password_hash
 from app.db.session import get_db
-from app.models.ai import AIModel, QaAuditLog
+from app.models.ai import QaAuditLog
 from app.models.content import Folder, Note, Repository
 from app.models.user import AuthAuditLog, Department, Role, User, UserRole
 from app.schemas.ai import (
-    AdminAIModelCreateRequest,
-    AdminAIModelDefaults,
-    AdminAIModelDefaultsUpdateRequest,
-    AdminAIModelItem,
-    AdminAIModelsResponse,
-    AdminAIModelUpdateRequest,
+    AdminQASystemPromptResponse,
+    AdminQASystemPromptUpdateRequest,
     QaAuditLogResponse,
 )
 from app.schemas.admin import (
@@ -51,19 +48,16 @@ from app.schemas.admin import (
     UserCreateRequest,
     UserUpdateRequest,
 )
-from app.services.ai_models import (
-    create_ai_model,
-    delete_ai_model,
-    get_admin_model_defaults,
-    serialize_admin_model,
-    set_model_enabled,
-    update_admin_model_defaults,
-    update_ai_model,
-)
 from app.services.search import delete_note_document, index_note, rebuild_notes_index
-from app.services.system_settings import get_cors_origins_setting, set_cors_origins_setting
+from app.services.system_settings import (
+    get_cors_origins_setting,
+    get_qa_system_prompt_setting,
+    set_cors_origins_setting,
+    set_qa_system_prompt_setting,
+)
 
 router = APIRouter()
+settings = get_settings()
 ADMIN_ROLE_CODE = "admin"
 EMPLOYEE_ROLE_CODE = "employee"
 ADMIN_DEPENDENCY = Depends(require_role(ADMIN_ROLE_CODE))
@@ -541,60 +535,64 @@ def get_qa_audit_logs(
     return QaAuditLogResponse(total=len(items), logs=items)
 
 
-@router.get("/ai/models", response_model=AdminAIModelsResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def list_ai_models(db: Annotated[Session, Depends(get_db)]) -> AdminAIModelsResponse:
-    models = db.query(AIModel).order_by(AIModel.id.asc()).all()
-    defaults = get_admin_model_defaults(db)
-    items = [AdminAIModelItem(**serialize_admin_model(model)) for model in models]
-    return AdminAIModelsResponse(total=len(items), defaults=defaults, models=items)
+@router.get("/ai/models", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def list_ai_models() -> dict[str, object]:
+    _raise_fixed_model_policy_disabled()
 
 
-@router.post("/ai/models", response_model=AdminAIModelItem, status_code=status.HTTP_201_CREATED, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def create_ai_model_api(
-    payload: AdminAIModelCreateRequest,
+@router.post("/ai/models", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def create_ai_model_api() -> dict[str, object]:
+    _raise_fixed_model_policy_disabled()
+
+
+@router.put("/ai/models/{model_id}", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def update_ai_model_api(model_id: int) -> dict[str, object]:
+    _ = model_id
+    _raise_fixed_model_policy_disabled()
+
+
+@router.post("/ai/models/{model_id}/enable", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def enable_ai_model(model_id: int) -> dict[str, object]:
+    _ = model_id
+    _raise_fixed_model_policy_disabled()
+
+
+@router.post("/ai/models/{model_id}/disable", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def disable_ai_model(model_id: int) -> dict[str, object]:
+    _ = model_id
+    _raise_fixed_model_policy_disabled()
+
+
+@router.delete("/ai/models/{model_id}", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def delete_ai_model_api(model_id: int) -> dict[str, object]:
+    _ = model_id
+    _raise_fixed_model_policy_disabled()
+
+
+@router.put("/ai/defaults", dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def update_ai_defaults() -> dict[str, object]:
+    _raise_fixed_model_policy_disabled()
+
+
+@router.get("/ai/system-prompt", response_model=AdminQASystemPromptResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def get_qa_system_prompt(db: Annotated[Session, Depends(get_db)]) -> AdminQASystemPromptResponse:
+    value, updated_at = get_qa_system_prompt_setting(db)
+    prompt = value or settings.qa_system_prompt_default
+    return AdminQASystemPromptResponse(
+        system_prompt=prompt,
+        updated_at=updated_at.isoformat() if updated_at else None,
+    )
+
+
+@router.put("/ai/system-prompt", response_model=AdminQASystemPromptResponse, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
+def update_qa_system_prompt(
+    payload: AdminQASystemPromptUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
-) -> AdminAIModelItem:
-    model = create_ai_model(db, payload)
-    return AdminAIModelItem(**serialize_admin_model(model))
-
-
-@router.put("/ai/models/{model_id}", response_model=AdminAIModelItem, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def update_ai_model_api(
-    model_id: int,
-    payload: AdminAIModelUpdateRequest,
-    db: Annotated[Session, Depends(get_db)],
-) -> AdminAIModelItem:
-    model = update_ai_model(db, model_id=model_id, payload=payload)
-    return AdminAIModelItem(**serialize_admin_model(model))
-
-
-@router.post("/ai/models/{model_id}/enable", response_model=AdminAIModelItem, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def enable_ai_model(model_id: int, db: Annotated[Session, Depends(get_db)]) -> AdminAIModelItem:
-    model = set_model_enabled(db, model_id=model_id, enabled=True)
-    return AdminAIModelItem(**serialize_admin_model(model))
-
-
-@router.post("/ai/models/{model_id}/disable", response_model=AdminAIModelItem, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def disable_ai_model(model_id: int, db: Annotated[Session, Depends(get_db)]) -> AdminAIModelItem:
-    model = set_model_enabled(db, model_id=model_id, enabled=False)
-    return AdminAIModelItem(**serialize_admin_model(model))
-
-
-@router.delete("/ai/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def delete_ai_model_api(model_id: int, db: Annotated[Session, Depends(get_db)]) -> Response:
-    delete_ai_model(db, model_id=model_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.put("/ai/defaults", response_model=AdminAIModelDefaults, dependencies=[PLATFORM_ADMIN_DEPENDENCY])
-def update_ai_defaults(
-    payload: AdminAIModelDefaultsUpdateRequest,
-    db: Annotated[Session, Depends(get_db)],
-) -> AdminAIModelDefaults:
-    return update_admin_model_defaults(
-        db,
-        chat_default_model_id=payload.chat_default_model_id,
-        embedding_default_model_id=payload.embedding_default_model_id,
+) -> AdminQASystemPromptResponse:
+    value, updated_at = set_qa_system_prompt_setting(db, payload.system_prompt)
+    return AdminQASystemPromptResponse(
+        system_prompt=value,
+        updated_at=updated_at.isoformat() if updated_at else None,
     )
 
 
@@ -699,6 +697,16 @@ def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)], current_u
     db.delete(user)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _raise_fixed_model_policy_disabled() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail={
+            "error_code": "feature_disabled_fixed_model_policy",
+            "message": "Model management is disabled by fixed-model policy.",
+        },
+    )
 
 
 def _normalize_slug(raw_slug: str) -> str:

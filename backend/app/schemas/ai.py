@@ -115,3 +115,12 @@ class QaAuditLogItem(BaseModel):
 class QaAuditLogResponse(BaseModel):
     total: int
     logs: list[QaAuditLogItem]
+
+
+class AdminQASystemPromptResponse(BaseModel):
+    system_prompt: str
+    updated_at: str | None = None
+
+
+class AdminQASystemPromptUpdateRequest(BaseModel):
+    system_prompt: str = Field(min_length=1, max_length=20000)
