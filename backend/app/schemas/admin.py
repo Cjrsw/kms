@@ -26,6 +26,8 @@ class AdminRepositoryItem(BaseModel):
     slug: str
     name: str
     description: str
+    cover_image_url: str
+    has_cover_image_upload: bool
     min_clearance_level: int
     folder_count: int
     note_count: int
@@ -33,11 +35,28 @@ class AdminRepositoryItem(BaseModel):
     notes: list[AdminNoteItem]
 
 
+class AdminRepositorySummaryItem(BaseModel):
+    id: int
+    slug: str
+    name: str
+    description: str
+    cover_image_url: str
+    has_cover_image_upload: bool
+    min_clearance_level: int
+    folder_count: int
+    note_count: int
+
+
 class AdminContentResponse(BaseModel):
     repository_count: int
     folder_count: int
     note_count: int
     repositories: list[AdminRepositoryItem]
+
+
+class AdminRepositoriesResponse(BaseModel):
+    total: int
+    repositories: list[AdminRepositorySummaryItem]
 
 
 class AdminUserItem(BaseModel):
@@ -129,6 +148,7 @@ class RepositoryCreateRequest(BaseModel):
     slug: str
     name: str
     description: str = ""
+    cover_image_url: str = ""
     min_clearance_level: int = Field(default=1, ge=1, le=4)
 
 
@@ -136,6 +156,7 @@ class RepositoryUpdateRequest(BaseModel):
     slug: str
     name: str
     description: str = ""
+    cover_image_url: str = ""
     min_clearance_level: int = Field(default=1, ge=1, le=4)
 
 

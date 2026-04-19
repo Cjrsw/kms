@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import { FileText, Send } from "lucide-react";
+import { FormEvent, useState, useRef, useEffect } from "react";
+import { FileText, Send, Bot, User, Sparkles, Loader2, ArrowRight } from "lucide-react";
+import { clsx } from "clsx";
 
 import type { RepositoryListItem } from "../../lib/api";
 
@@ -55,6 +56,16 @@ type QaStreamMeta = {
   sources: QaSourceItem[];
 };
 
+type QaInteraction = {
+  id: string;
+  question: string;
+  repositorySlug?: string;
+  status: "pending" | "success" | "error";
+  answer: string;
+  streamMeta: QaStreamMeta | null;
+  response: QaResponseEnvelope | null;
+};
+
 function toPlainText(snippet: string): string {
   return snippet.replace(/<[^>]+>/g, "").trim();
 }
@@ -78,10 +89,23 @@ function parseSseFrame(rawFrame: string): { event: string; data: string } {
 export function QaClient({ repositories }: QaClientProps) {
   const [question, setQuestion] = useState("");
   const [repositorySlug, setRepositorySlug] = useState("");
+  const [interactions, setInteractions] = useState<QaInteraction[]>([]);
   const [isPending, setIsPending] = useState(false);
-  const [streamingAnswer, setStreamingAnswer] = useState("");
-  const [streamMeta, setStreamMeta] = useState<QaStreamMeta | null>(null);
-  const [response, setResponse] = useState<QaResponseEnvelope | null>(null);
+  
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [interactions]);
+
+  function updateLastInteraction(updater: (interaction: QaInteraction) => QaInteraction) {
+    setInteractions((prev) => {
+      if (prev.length === 0) return prev;
+      const newArray = [...prev];
+      newArray[newArray.length - 1] = updater(newArray[newArray.length - 1]);
+      return newArray;
+    });
+  }
 
   async function askByFallback(payload: { question: string; repository_slug?: string }): Promise<void> {
     const res = await fetch("/api/qa/ask", {
@@ -94,7 +118,12 @@ export function QaClient({ repositories }: QaClientProps) {
       return;
     }
     const body = (await res.json()) as QaResponseEnvelope;
-    setResponse(body);
+    updateLastInteraction((interaction) => ({
+      ...interaction,
+      status: body.status === "ok" ? "success" : "error",
+      response: body,
+      answer: body.status === "ok" ? (body.data?.answer || "") : "",
+    }));
   }
 
   async function askByStreaming(payload: { question: string; repository_slug?: string }): Promise<boolean> {
@@ -114,50 +143,48 @@ export function QaClient({ repositories }: QaClientProps) {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let answer = "";
+    let currentAnswer = "";
     let finalEnvelope: QaResponseEnvelope | null = null;
     let gotDone = false;
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
+      if (done) break;
+      
       buffer += decoder.decode(value, { stream: true });
 
       while (true) {
         const delimiterIndex = buffer.indexOf("\n\n");
-        if (delimiterIndex < 0) {
-          break;
-        }
+        if (delimiterIndex < 0) break;
+        
         const frame = buffer.slice(0, delimiterIndex).trim();
         buffer = buffer.slice(delimiterIndex + 2);
-        if (!frame) {
-          continue;
-        }
+        if (!frame) continue;
 
         const parsed = parseSseFrame(frame);
-        if (!parsed.data) {
-          continue;
-        }
+        if (!parsed.data) continue;
 
         if (parsed.event === "meta") {
           const meta = JSON.parse(parsed.data) as QaStreamMeta;
-          setStreamMeta(meta);
+          updateLastInteraction((interaction) => ({ ...interaction, streamMeta: meta }));
           continue;
         }
         if (parsed.event === "delta") {
           const delta = JSON.parse(parsed.data) as { content?: string };
           if (delta.content) {
-            answer += delta.content;
-            setStreamingAnswer(answer);
+            currentAnswer += delta.content;
+            updateLastInteraction((interaction) => ({ ...interaction, answer: currentAnswer }));
           }
           continue;
         }
         if (parsed.event === "error") {
           const failure = JSON.parse(parsed.data) as QaFailure;
           finalEnvelope = { status: "failed", data: null, error: failure };
-          setResponse(finalEnvelope);
+          updateLastInteraction((interaction) => ({
+            ...interaction,
+            status: "error",
+            response: finalEnvelope
+          }));
           return true;
         }
         if (parsed.event === "done") {
@@ -167,41 +194,42 @@ export function QaClient({ repositories }: QaClientProps) {
           break;
         }
       }
-
-      if (gotDone) {
-        break;
-      }
+      if (gotDone) break;
     }
 
-    if (!finalEnvelope) {
-      return false;
-    }
-    setResponse(finalEnvelope);
+    if (!finalEnvelope) return false;
+    
+    updateLastInteraction((interaction) => ({
+      ...interaction,
+      status: finalEnvelope?.status === "ok" ? "success" : "error",
+      response: finalEnvelope,
+      answer: finalEnvelope?.status === "ok" ? (finalEnvelope.data?.answer || "") : ""
+    }));
     return true;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedQuestion = question.trim();
-    if (!normalizedQuestion) {
-      setResponse({
-        status: "failed",
-        data: null,
-        error: {
-          error_code: "empty_question",
-          error_category: "validation",
-          user_message: "Question must not be empty.",
-          hint: "Please input a question and retry.",
-          trace_id: "",
-        },
-      });
-      return;
-    }
+    if (!normalizedQuestion) return;
 
+    const newId = Math.random().toString(36).substring(7);
+    
+    setInteractions((prev) => [
+      ...prev,
+      {
+        id: newId,
+        question: normalizedQuestion,
+        repositorySlug: repositorySlug || undefined,
+        status: "pending",
+        answer: "",
+        streamMeta: null,
+        response: null,
+      }
+    ]);
+    
+    setQuestion("");
     setIsPending(true);
-    setStreamingAnswer("");
-    setStreamMeta(null);
-    setResponse(null);
 
     const payload = {
       question: normalizedQuestion,
@@ -219,108 +247,180 @@ export function QaClient({ repositories }: QaClientProps) {
     }
   }
 
-  const answerData = response?.status === "ok" ? response.data : null;
-  const failureData = response?.status === "failed" ? response.error : null;
-
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-2">
-          <select
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            value={repositorySlug}
-            onChange={(event) => setRepositorySlug(event.target.value)}
-            name="repository_slug"
-          >
-            <option value="">All repositories</option>
-            {repositories.map((repository) => (
-              <option key={repository.id} value={repository.slug}>
-                {repository.name}
-              </option>
-            ))}
-          </select>
-          <div className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-500">
-            Model is fixed by system policy.
-          </div>
-        </div>
-
-        <textarea
-          className="mt-3 min-h-[110px] w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          name="question"
-          placeholder="Ask your question here."
-          required
-        />
-        <div className="mt-3 flex justify-end">
-          <button
-            className="inline-flex items-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-            disabled={isPending}
-            type="submit"
-          >
-            <Send className="mr-2 h-4 w-4" />
-            {isPending ? "Asking..." : "Ask"}
-          </button>
-        </div>
-      </form>
-
-      {isPending && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            {streamMeta?.model_name && (
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">{streamMeta.model_name}</span>
-            )}
-            {streamMeta?.recall_mode && <span className="rounded-full bg-slate-100 px-2 py-0.5">Recall: {streamMeta.recall_mode}</span>}
-            {streamMeta?.trace_id && <span>trace_id: {streamMeta.trace_id}</span>}
-          </div>
-          <p className="whitespace-pre-line text-sm leading-7 text-slate-800">{streamingAnswer || "Waiting for model response..."}</p>
-        </div>
-      )}
-
-      {failureData && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <p className="font-semibold">{failureData.user_message}</p>
-          <p className="mt-1 text-red-600">{failureData.hint}</p>
-          {failureData.trace_id && <p className="mt-1 text-xs text-red-500">trace_id: {failureData.trace_id}</p>}
-        </div>
-      )}
-
-      {answerData && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            {answerData.model_name && (
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">{answerData.model_name}</span>
-            )}
-            <span className="rounded-full bg-slate-100 px-2 py-0.5">Recall: {answerData.recall_mode}</span>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5">Citation: {answerData.citation_status}</span>
-            {answerData.trace_id && <span>trace_id: {answerData.trace_id}</span>}
-          </div>
-          <p className="whitespace-pre-line text-sm leading-7 text-slate-800">{answerData.answer}</p>
-          {answerData.sources.length > 0 && (
-            <div className="mt-5 border-t border-slate-100 pt-4">
-              <p className="mb-3 text-xs text-slate-500">Sources ({answerData.source_count})</p>
-              <div className="space-y-3">
-                {answerData.sources.map((source) => (
-                  <Link
-                    key={`${source.repository_slug}-${source.note_id}-${source.updated_at}`}
-                    href={`/repositories/${source.repository_slug}/notes/${source.note_id}`}
-                    className="block rounded-xl border border-blue-100 bg-blue-50/30 p-3 hover:border-blue-300"
-                  >
-                    <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
-                      <FileText className="h-4 w-4" />
-                      {source.title}
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {source.repository_name} | L{source.clearance_level} | Attachments {source.attachment_count}
-                    </p>
-                    <p className="mt-2 text-sm text-slate-700">{toPlainText(source.snippet)}</p>
-                  </Link>
-                ))}
+    <div className="relative flex h-full flex-col">
+      {/* 消息流区域 */}
+      <div className="flex-1 overflow-y-auto pb-32">
+        <div className="mx-auto w-full max-w-4xl space-y-8 py-6">
+          {interactions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center pt-20 text-center animate-fade-in">
+              <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-tr from-indigo-500 to-blue-600 shadow-floating text-white mb-6">
+                <Sparkles className="h-10 w-10" />
               </div>
+              <h2 className="text-2xl font-extrabold text-slate-800">您好，我是 KMS 智能助手</h2>
+              <p className="mt-3 text-slate-500 max-w-md leading-relaxed">
+                您可以选择特定的知识仓库，或者在全局范围内向我提问。我将基于企业内部知识为您生成精准的解答。
+              </p>
             </div>
+          ) : (
+            interactions.map((interaction) => (
+              <div key={interaction.id} className="space-y-6 animate-fade-in">
+                {/* 用户消息 */}
+                <div className="flex items-start justify-end gap-4 px-4">
+                  <div className="rounded-2xl rounded-tr-sm bg-indigo-600 px-5 py-3.5 text-sm text-white shadow-soft">
+                    {interaction.question}
+                  </div>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+                    <User className="h-5 w-5" />
+                  </div>
+                </div>
+
+                {/* AI 回复 */}
+                <div className="flex items-start gap-4 px-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 text-white shadow-soft">
+                    <Bot className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 max-w-3xl">
+                    <div className="rounded-2xl rounded-tl-sm border border-slate-200/60 bg-white p-5 shadow-soft">
+                      {/* 状态与元数据信息 */}
+                      {(interaction.status === "pending" || interaction.streamMeta) && (
+                        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+                          {interaction.streamMeta?.model_name && (
+                            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700">
+                              {interaction.streamMeta.model_name}
+                            </span>
+                          )}
+                          {interaction.streamMeta?.recall_mode && (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                              检索模式: {interaction.streamMeta.recall_mode}
+                            </span>
+                          )}
+                          {interaction.response?.data?.citation_status && (
+                            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                              引用状态: {interaction.response.data.citation_status}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 回答正文 */}
+                      <div className="prose prose-sm prose-slate max-w-none whitespace-pre-line leading-7">
+                        {interaction.answer || (interaction.status === "pending" ? (
+                          <div className="flex items-center text-indigo-600">
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            正在思考...
+                          </div>
+                        ) : null)}
+                      </div>
+
+                      {/* 错误提示 */}
+                      {interaction.status === "error" && interaction.response?.error && (
+                        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm">
+                          <p className="font-semibold text-rose-800">{interaction.response.error.user_message}</p>
+                          <p className="mt-1 text-rose-600">{interaction.response.error.hint}</p>
+                        </div>
+                      )}
+
+                      {/* 引用来源卡片 */}
+                      {interaction.status === "success" && interaction.response?.data && interaction.response.data.sources.length > 0 && (
+                        <div className="mt-6 border-t border-slate-100 pt-5">
+                          <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            参考来源 ({interaction.response.data.source_count})
+                          </p>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {interaction.response.data.sources.map((source) => (
+                              <Link
+                                key={`${source.repository_slug}-${source.note_id}-${source.updated_at}`}
+                                href={`/repositories/${source.repository_slug}/notes/${source.note_id}`}
+                                className="group block rounded-xl border border-slate-200 bg-slate-50 p-3.5 transition-all duration-300 hover:border-indigo-300 hover:bg-indigo-50/50 hover:shadow-soft"
+                              >
+                                <div className="flex items-center gap-2 text-sm font-bold text-slate-700 group-hover:text-indigo-700">
+                                  <FileText className="h-4 w-4 text-indigo-500" />
+                                  <span className="truncate">{source.title}</span>
+                                </div>
+                                <div className="mt-1.5 flex items-center gap-2 text-xs font-medium text-slate-500">
+                                  <span className="truncate">{source.repository_name}</span>
+                                  <span>•</span>
+                                  <span>密级 L{source.clearance_level}</span>
+                                </div>
+                                <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                                  {toPlainText(source.snippet)}
+                                </p>
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
           )}
+          <div ref={bottomRef} />
         </div>
-      )}
+      </div>
+
+      {/* 底部输入区 */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent pb-6 pt-10">
+        <div className="mx-auto w-full max-w-4xl px-4">
+          <form 
+            onSubmit={handleSubmit} 
+            className="glass-panel overflow-hidden transition-all duration-300 focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:border-indigo-300"
+          >
+            <div className="flex items-center border-b border-slate-200/50 bg-slate-50/50 px-4 py-2.5">
+              <select
+                className="rounded-lg border-none bg-transparent px-2 py-1 text-xs font-medium text-slate-600 outline-none hover:text-slate-900 focus:ring-0 cursor-pointer"
+                value={repositorySlug}
+                onChange={(event) => setRepositorySlug(event.target.value)}
+                name="repository_slug"
+              >
+                <option value="">全库检索模式</option>
+                {repositories.map((repository) => (
+                  <option key={repository.id} value={repository.slug}>
+                    {repository.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="relative flex items-end gap-2 p-3">
+              <textarea
+                className="custom-scrollbar max-h-48 min-h-[56px] w-full resize-none border-none bg-transparent px-3 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (question.trim() && !isPending) {
+                      const form = e.currentTarget.form;
+                      if (form) form.requestSubmit();
+                    }
+                  }
+                }}
+                name="question"
+                placeholder="在此输入您的问题，按 Enter 发送，Shift + Enter 换行..."
+                required
+              />
+              <button
+                className="mb-1 mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-soft transition-all duration-300 hover:bg-indigo-700 hover:shadow-floating active:scale-95 disabled:opacity-50 disabled:hover:scale-100 disabled:hover:shadow-none"
+                disabled={isPending || !question.trim()}
+                type="submit"
+                title="发送问题"
+              >
+                {isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <ArrowRight className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+          </form>
+          <div className="mt-3 text-center text-xs text-slate-400">
+            KMS AI 生成的内容可能包含不准确的信息，请以原文档为准。
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

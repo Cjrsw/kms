@@ -19,7 +19,10 @@ export type RepositoryListItem = {
   slug: string;
   name: string;
   description: string;
+  cover_image_url: string;
+  has_cover_image_upload: boolean;
   min_clearance_level: number;
+  folder_count: number;
   note_count: number;
   latest_notes: Array<{
     id: number;
@@ -37,6 +40,8 @@ export type RepositoryDetail = {
   slug: string;
   name: string;
   description: string;
+  cover_image_url: string;
+  has_cover_image_upload: boolean;
   min_clearance_level: number;
   folders: Array<{
     id: number;
@@ -174,6 +179,8 @@ export type AdminRepositoryItem = {
   slug: string;
   name: string;
   description: string;
+  cover_image_url: string;
+  has_cover_image_upload: boolean;
   min_clearance_level: number;
   folder_count: number;
   note_count: number;
@@ -181,11 +188,28 @@ export type AdminRepositoryItem = {
   notes: AdminNoteItem[];
 };
 
+export type AdminRepositorySummaryItem = {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  cover_image_url: string;
+  has_cover_image_upload: boolean;
+  min_clearance_level: number;
+  folder_count: number;
+  note_count: number;
+};
+
 export type AdminContent = {
   repository_count: number;
   folder_count: number;
   note_count: number;
   repositories: AdminRepositoryItem[];
+};
+
+export type AdminRepositoriesResponse = {
+  total: number;
+  repositories: AdminRepositorySummaryItem[];
 };
 
 export type AdminUserItem = {
@@ -647,10 +671,15 @@ export async function getAdminContent(): Promise<AdminContent> {
   return apiFetch<AdminContent>("/admin/content");
 }
 
+export async function getAdminRepositories(): Promise<AdminRepositoriesResponse> {
+  return apiFetch<AdminRepositoriesResponse>("/admin/repositories");
+}
+
 export async function createRepository(payload: {
   slug: string;
   name: string;
   description: string;
+  cover_image_url: string;
   min_clearance_level: number;
 }): Promise<AdminRepositoryItem> {
   return apiJsonRequest<AdminRepositoryItem>("/admin/repositories", "POST", payload);
@@ -662,6 +691,7 @@ export async function updateRepositoryAdmin(
     slug: string;
     name: string;
     description: string;
+    cover_image_url: string;
     min_clearance_level: number;
   }
 ): Promise<AdminRepositoryItem> {

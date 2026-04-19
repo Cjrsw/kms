@@ -7,8 +7,8 @@
 }
 
 body {
-  background: #f5f7fa;
-  color: #0f172a;
+  background: #F8FAFC; /* slate-50 */
+  color: #0F172A; /* slate-900 */
 }
 
 a {
@@ -31,7 +31,7 @@ a {
 .ProseMirror h1 {
   margin: 1.25rem 0 0.75rem;
   font-size: 1.875rem;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.2;
 }
 
@@ -58,17 +58,26 @@ a {
   padding-left: 1rem;
   color: #475569;
 }
+
 @layer components {
   .input-field {
-    @apply rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60 disabled:cursor-not-allowed;
+    @apply rounded-xl border border-slate-200 bg-white/70 px-4 py-2.5 text-sm text-slate-900 outline-none transition-all duration-300 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 focus:shadow-sm disabled:opacity-60 disabled:cursor-not-allowed backdrop-blur-sm hover:border-slate-300;
   }
 
   .btn-primary {
-    @apply rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-60;
+    @apply rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-soft transition-all duration-300 hover:bg-indigo-700 hover:shadow-floating hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 disabled:opacity-60 disabled:hover:translate-y-0;
+  }
+
+  .btn-secondary {
+    @apply rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-300 hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5 active:scale-[0.98];
   }
 
   .btn-danger {
-    @apply rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 shadow-sm transition-all hover:bg-red-50 active:scale-[0.98];
+    @apply rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition-all duration-300 hover:bg-red-50 hover:border-red-300 active:scale-[0.98];
+  }
+
+  .glass-panel {
+    @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-glass rounded-2xl;
   }
 
   /* 优雅的自定义滚动条 */

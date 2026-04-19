@@ -9,14 +9,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        canvas: "#f4f7fb",
-        ink: "#0f172a",
-        accent: "#0f766e",
-        accentSoft: "#ccfbf1",
-        panel: "#ffffff"
+        // We will rely on Tailwind's default slate, blue, and indigo palettes.
       },
       boxShadow: {
-        panel: "0 14px 40px rgba(15, 23, 42, 0.08)"
+        soft: "0 4px 20px -2px rgba(0, 0, 0, 0.05)",
+        glass: "0 8px 32px 0 rgba(31, 38, 135, 0.07)",
+        floating: "0 10px 40px -10px rgba(0,0,0,0.08)",
+      },
+      animation: {
+        "fade-in": "fadeIn 0.3s ease-out forwards",
+        "slide-up": "slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        slideUp: {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        }
       }
     }
   },

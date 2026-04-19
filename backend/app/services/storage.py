@@ -32,6 +32,11 @@ def build_attachment_object_key(note_id: int, file_name: str) -> str:
     return f"notes/{note_id}/{uuid4().hex}{suffix}"
 
 
+def build_repository_cover_object_key(repository_id: int, file_name: str) -> str:
+    suffix = Path(file_name).suffix.lower()
+    return f"repositories/{repository_id}/cover/{uuid4().hex}{suffix}"
+
+
 def upload_attachment_bytes(
     *,
     object_key: str,

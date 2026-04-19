@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -28,6 +29,8 @@ from app.schemas.admin import (
     AdminFolderItem,
     AdminNoteItem,
     AdminRepositoryItem,
+    AdminRepositoriesResponse,
+    AdminRepositorySummaryItem,
     AdminUserItem,
     AdminUsersResponse,
     AuthAuditLogItem,
@@ -49,6 +52,7 @@ from app.schemas.admin import (
     UserUpdateRequest,
 )
 from app.services.search import delete_note_document, index_note, rebuild_notes_index
+from app.services.storage import build_repository_cover_object_key, remove_object, upload_attachment_bytes
 from app.services.system_settings import (
     get_cors_origins_setting,
     get_qa_system_prompt_setting,
@@ -63,6 +67,8 @@ EMPLOYEE_ROLE_CODE = "employee"
 ADMIN_DEPENDENCY = Depends(require_role(ADMIN_ROLE_CODE))
 PLATFORM_ADMIN_DEPENDENCY = Depends(require_role(ADMIN_ROLE_CODE))
 SLUG_RE = re.compile(r"[^a-z0-9]+")
+ALLOWED_REPOSITORY_COVER_TYPES = {"png", "jpg", "jpeg", "webp"}
+MAX_REPOSITORY_COVER_SIZE = 10 * 1024 * 1024
 
 
 @router.get("/content", response_model=AdminContentResponse)
@@ -86,6 +92,8 @@ def get_admin_content(
             slug=repository.slug,
             name=repository.name,
             description=repository.description,
+            cover_image_url=repository.cover_image_url or "",
+            has_cover_image_upload=bool(repository.cover_image_object_key),
             min_clearance_level=repository.min_clearance_level,
             folder_count=len(repository.folders),
             note_count=len(repository.notes),
@@ -139,12 +147,56 @@ def create_repository(
         slug=slug,
         name=payload.name.strip(),
         description=payload.description.strip(),
+        cover_image_url=payload.cover_image_url.strip(),
+        cover_image_object_key=None,
         min_clearance_level=payload.min_clearance_level,
     )
     db.add(repository)
     db.commit()
     db.refresh(repository)
     return _serialize_repository(repository)
+
+
+@router.get("/repositories", response_model=AdminRepositoriesResponse)
+def list_repositories_admin(
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminRepositoriesResponse:
+    rows = (
+        db.query(
+            Repository.id,
+            Repository.slug,
+            Repository.name,
+            Repository.description,
+            Repository.cover_image_url,
+            Repository.cover_image_object_key,
+            Repository.min_clearance_level,
+            func.count(func.distinct(Folder.id)).label("folder_count"),
+            func.count(func.distinct(Note.id)).label("note_count"),
+        )
+        .outerjoin(Folder, Folder.repository_id == Repository.id)
+        .outerjoin(Note, Note.repository_id == Repository.id)
+        .group_by(Repository.id)
+        .order_by(Repository.id.asc())
+        .all()
+    )
+
+    repositories = [
+        AdminRepositorySummaryItem(
+            id=int(row.id),
+            slug=row.slug,
+            name=row.name,
+            description=row.description,
+            cover_image_url=row.cover_image_url or "",
+            has_cover_image_upload=bool(row.cover_image_object_key),
+            min_clearance_level=int(row.min_clearance_level),
+            folder_count=int(row.folder_count or 0),
+            note_count=int(row.note_count or 0),
+        )
+        for row in rows
+    ]
+
+    return AdminRepositoriesResponse(total=len(repositories), repositories=repositories)
 
 
 @router.put("/repositories/{repository_id}", response_model=AdminRepositoryItem)
@@ -163,14 +215,89 @@ def update_repository(
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Repository slug already exists.")
 
+    should_reindex_repository_notes = (
+        repository.slug != slug
+        or repository.name != payload.name.strip()
+    )
+
     repository.slug = slug
     repository.name = payload.name.strip()
     repository.description = payload.description.strip()
+    repository.cover_image_url = payload.cover_image_url.strip()
     repository.min_clearance_level = payload.min_clearance_level
     db.add(repository)
     db.commit()
     db.refresh(repository)
-    rebuild_notes_index(db)
+    if should_reindex_repository_notes:
+        _reindex_repository_notes(db, repository.id)
+    return _load_repository(db, repository.id)
+
+
+@router.put("/repositories/{repository_id}/cover", response_model=AdminRepositoryItem)
+async def upload_repository_cover(
+    repository_id: int,
+    file: Annotated[UploadFile, File(...)],
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminRepositoryItem:
+    repository = db.query(Repository).filter(Repository.id == repository_id).first()
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
+
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cover image file name is required.")
+
+    file_extension = Path(file.filename).suffix.lower().lstrip(".")
+    if file_extension not in ALLOWED_REPOSITORY_COVER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Repository cover only supports PNG, JPG, JPEG and WEBP.",
+        )
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty cover image is not allowed.")
+    if len(file_bytes) > MAX_REPOSITORY_COVER_SIZE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cover image exceeds the 10MB limit.")
+
+    old_object_key = repository.cover_image_object_key
+    new_object_key = build_repository_cover_object_key(repository.id, file.filename)
+    upload_attachment_bytes(
+        object_key=new_object_key,
+        data=file_bytes,
+        content_type=file.content_type or _resolve_repository_cover_media_type(file_extension),
+    )
+
+    repository.cover_image_object_key = new_object_key
+    repository.cover_image_url = ""
+    db.add(repository)
+    db.commit()
+
+    if old_object_key:
+        remove_object(old_object_key)
+
+    return _load_repository(db, repository.id)
+
+
+@router.delete("/repositories/{repository_id}/cover", response_model=AdminRepositoryItem)
+def delete_repository_cover(
+    repository_id: int,
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminRepositoryItem:
+    repository = db.query(Repository).filter(Repository.id == repository_id).first()
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
+
+    old_object_key = repository.cover_image_object_key
+    repository.cover_image_object_key = None
+    repository.cover_image_url = ""
+    db.add(repository)
+    db.commit()
+
+    if old_object_key:
+        remove_object(old_object_key)
+
     return _load_repository(db, repository.id)
 
 
@@ -184,8 +311,11 @@ def delete_repository(
     if repository is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
 
+    cover_object_key = repository.cover_image_object_key
     db.delete(repository)
     db.commit()
+    if cover_object_key:
+        remove_object(cover_object_key)
     rebuild_notes_index(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -780,6 +910,8 @@ def _serialize_repository(repository: Repository) -> AdminRepositoryItem:
         slug=repository.slug,
         name=repository.name,
         description=repository.description,
+        cover_image_url=repository.cover_image_url or "",
+        has_cover_image_upload=bool(repository.cover_image_object_key),
         min_clearance_level=repository.min_clearance_level,
         folder_count=0,
         note_count=0,
@@ -806,6 +938,8 @@ def _load_repository(db: Session, repository_id: int) -> AdminRepositoryItem:
         slug=repository.slug,
         name=repository.name,
         description=repository.description,
+        cover_image_url=repository.cover_image_url or "",
+        has_cover_image_upload=bool(repository.cover_image_object_key),
         min_clearance_level=repository.min_clearance_level,
         folder_count=len(repository.folders),
         note_count=len(repository.notes),
@@ -933,3 +1067,19 @@ def _normalize_origin(origin: str) -> str:
     if parsed.path not in {"", "/"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Origin must not include path: {origin}")
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _reindex_repository_notes(db: Session, repository_id: int) -> None:
+    note_ids = [int(note_id) for note_id, in db.query(Note.id).filter(Note.repository_id == repository_id).all()]
+    for note_id in note_ids:
+        index_note(db, note_id)
+
+
+def _resolve_repository_cover_media_type(file_type: str) -> str:
+    if file_type == "png":
+        return "image/png"
+    if file_type in {"jpg", "jpeg"}:
+        return "image/jpeg"
+    if file_type == "webp":
+        return "image/webp"
+    return "application/octet-stream"

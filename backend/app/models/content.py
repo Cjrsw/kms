@@ -13,6 +13,8 @@ class Repository(Base):
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="")
+    cover_image_url: Mapped[str] = mapped_column(String(500), default="")
+    cover_image_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     min_clearance_level: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

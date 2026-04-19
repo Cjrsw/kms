@@ -32,7 +32,10 @@ class RepositoryListItem(BaseModel):
     slug: str
     name: str
     description: str
+    cover_image_url: str
+    has_cover_image_upload: bool
     min_clearance_level: int
+    folder_count: int
     note_count: int
     latest_notes: list[NoteListItem] = []
 
@@ -42,6 +45,8 @@ class RepositoryDetailResponse(BaseModel):
     slug: str
     name: str
     description: str
+    cover_image_url: str
+    has_cover_image_upload: bool
     min_clearance_level: int
     folders: list[FolderItem]
     notes: list[NoteListItem]

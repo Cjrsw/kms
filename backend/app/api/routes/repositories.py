@@ -46,7 +46,7 @@ def list_repositories(
 ) -> list[RepositoryListItem]:
     repositories = (
         db.query(Repository)
-        .options(selectinload(Repository.notes))
+        .options(selectinload(Repository.notes), selectinload(Repository.folders))
         .filter(Repository.min_clearance_level <= user.clearance_level)
         .order_by(Repository.id.asc())
         .all()
@@ -69,7 +69,16 @@ def list_repositories(
                 slug=repository.slug,
                 name=repository.name,
                 description=repository.description,
+                cover_image_url=repository.cover_image_url or "",
+                has_cover_image_upload=bool(repository.cover_image_object_key),
                 min_clearance_level=repository.min_clearance_level,
+                folder_count=len(
+                    [
+                        folder
+                        for folder in repository.folders
+                        if folder.min_clearance_level <= user.clearance_level
+                    ]
+                ),
                 note_count=len(visible_notes),
                 latest_notes=latest_notes,
             )
@@ -118,9 +127,36 @@ def get_repository(
         slug=repository.slug,
         name=repository.name,
         description=repository.description,
+        cover_image_url=repository.cover_image_url or "",
+        has_cover_image_upload=bool(repository.cover_image_object_key),
         min_clearance_level=repository.min_clearance_level,
         folders=visible_folders,
         notes=visible_notes,
+    )
+
+
+@router.get("/{repository_slug}/cover")
+def get_repository_cover(
+    repository_slug: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    repository = db.query(Repository).filter(Repository.slug == repository_slug).first()
+    if repository is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
+    if repository.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Repository access denied.")
+    if not repository.cover_image_object_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository cover not found.")
+
+    object_bytes = get_object_bytes(repository.cover_image_object_key)
+    if object_bytes is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository cover not found in storage.")
+
+    return Response(
+        content=object_bytes,
+        media_type=_resolve_cover_media_type(repository.cover_image_object_key),
+        headers={"Cache-Control": "private, max-age=300"},
     )
 
 
@@ -691,6 +727,17 @@ def _resolve_attachment_media_type(file_type: str) -> str:
         return "application/pdf"
     if file_type == "docx":
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return "application/octet-stream"
+
+
+def _resolve_cover_media_type(object_key: str) -> str:
+    suffix = Path(object_key).suffix.lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
     return "application/octet-stream"
 
 

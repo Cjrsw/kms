@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import LinkExtension from "@tiptap/extension-link";
@@ -13,8 +13,13 @@ import {
   Link2,
   List,
   ListOrdered,
-  Quote
+  Quote,
+  Save,
+  X,
+  Paperclip,
+  Loader2
 } from "lucide-react";
+import { clsx } from "clsx";
 
 type NoteEditorProps = {
   cancelHref: string;
@@ -22,6 +27,7 @@ type NoteEditorProps = {
   initialContentJson: string;
   initialContentText: string;
   action: (formData: FormData) => void;
+  uploadAction?: (formData: FormData) => Promise<void> | void;
 };
 
 function createFallbackDocument(contentText: string) {
@@ -58,13 +64,17 @@ export function NoteEditor({
   initialTitle,
   initialContentJson,
   initialContentText,
-  action
+  action,
+  uploadAction
 }: NoteEditorProps) {
   const [title, setTitle] = useState(initialTitle);
   const [contentText, setContentText] = useState(initialContentText);
   const [contentJson, setContentJson] = useState(
     initialContentJson || JSON.stringify(createFallbackDocument(initialContentText))
   );
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -80,7 +90,7 @@ export function NoteEditor({
     editorProps: {
       attributes: {
         class:
-          "min-h-[420px] px-5 py-5 text-[15px] leading-relaxed text-gray-700 outline-none ProseMirror"
+          "min-h-[460px] px-8 py-6 text-lg leading-loose text-slate-800 outline-none ProseMirror prose prose-slate prose-lg max-w-none focus:outline-none"
       }
     },
     onUpdate: ({ editor: currentEditor }) => {
@@ -97,6 +107,23 @@ export function NoteEditor({
     setContentText(getEditorPlainText(editor));
     setContentJson(JSON.stringify(editor.getJSON()));
   }, [editor]);
+
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !uploadAction) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("attachment", file);
+      await uploadAction(formData);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
 
   const toolbarItems = [
     {
@@ -136,7 +163,7 @@ export function NoteEditor({
       onClick: () => editor?.chain().focus().toggleOrderedList().run()
     },
     {
-      label: "引用",
+      label: "引用块",
       icon: Quote,
       active: editor?.isActive("blockquote") ?? false,
       onClick: () => editor?.chain().focus().toggleBlockquote().run()
@@ -150,76 +177,112 @@ export function NoteEditor({
   ];
 
   return (
-    <form action={action} className="grid gap-6">
-      <section className="rounded-xl border border-gray-300 bg-white shadow-sm">
-        <div className="border-b border-gray-200 bg-gray-50 p-4">
-          <label className="block text-sm font-semibold text-gray-700" htmlFor="title">
-            标题
-          </label>
-        </div>
-        <div className="p-5">
-          <input
-            className="block w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-700 outline-none transition-all hover:bg-white focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
-            id="title"
-            name="title"
-            onChange={(event) => setTitle(event.target.value)}
-            value={title}
-          />
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-xl border border-gray-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
-        <div className="border-b border-gray-200 bg-gray-50 p-4">
-          <label className="block text-sm font-semibold text-gray-700">正文</label>
-        </div>
-
-        <div className="border-b border-gray-100 bg-white px-4 py-3">
-          <div className="flex flex-wrap items-center gap-1">
-            {toolbarItems.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <button
-                  key={item.label}
-                  className={`inline-flex items-center rounded px-2.5 py-1.5 text-xs transition-colors ${
-                    item.active
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-gray-600 hover:bg-gray-200 hover:text-gray-900"
-                  }`}
-                  onClick={item.onClick}
-                  type="button"
-                >
-                  <Icon className="mr-1.5 h-3.5 w-3.5" />
-                  {item.label}
-                </button>
-              );
-            })}
+    <div className="mx-auto max-w-5xl space-y-6 animate-fade-in">
+      <form action={action} className="space-y-6" id="note-form">
+        <section className="rounded-3xl border border-slate-200/60 bg-white shadow-soft transition-all focus-within:shadow-floating focus-within:border-indigo-300">
+          <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 rounded-t-3xl">
+            <label className="block text-sm font-bold tracking-widest uppercase text-slate-400" htmlFor="title">
+              笔记标题
+            </label>
           </div>
-        </div>
-
-        <EditorContent editor={editor} />
-
-        <input name="content_text" type="hidden" value={contentText} />
-        <input name="content_json" type="hidden" value={contentJson} />
-
-        <div className="flex justify-between gap-3 border-t border-gray-200 bg-gray-50 p-3">
-          <p className="px-2 py-2 text-xs text-gray-500">当前会同时保存结构化 JSON 和纯文本，方便后续 Elasticsearch 建索引。</p>
-          <div className="flex gap-3">
-            <Link
-              href={cancelHref}
-              className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-white"
-            >
-              取消
-            </Link>
-            <button
-              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-              type="submit"
-            >
-              保存笔记内容
-            </button>
+          <div className="p-6">
+            <input
+              className="w-full border-none bg-transparent px-2 py-2 text-2xl font-bold text-slate-900 outline-none placeholder:text-slate-300 focus:ring-0"
+              id="title"
+              name="title"
+              placeholder="在这里输入一个响亮的标题..."
+              onChange={(event) => setTitle(event.target.value)}
+              value={title}
+            />
           </div>
-        </div>
-      </section>
-    </form>
+        </section>
+
+        <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-soft transition-all focus-within:shadow-floating focus-within:border-indigo-300">
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-3 gap-4">
+            <label className="text-sm font-bold tracking-widest uppercase text-slate-400 shrink-0">正文编辑区</label>
+            
+            <div className="flex flex-wrap items-center gap-1">
+              {toolbarItems.map((item) => {
+                const Icon = item.icon;
+
+                return (
+                  <button
+                    key={item.label}
+                    className={clsx(
+                      "inline-flex h-9 w-9 items-center justify-center rounded-xl transition-all",
+                      item.active
+                        ? "bg-indigo-100 text-indigo-700 shadow-sm"
+                        : "text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                    )}
+                    onClick={item.onClick}
+                    type="button"
+                    title={item.label}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </button>
+                );
+              })}
+
+              {uploadAction && (
+                <>
+                  <div className="mx-2 h-5 w-[1px] bg-slate-300"></div>
+                  <button
+                    className="group relative inline-flex h-9 items-center justify-center gap-2 rounded-xl px-3 text-slate-500 transition-all hover:bg-slate-200 hover:text-slate-900"
+                    type="button"
+                    title="上传附件"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                    ) : (
+                      <Paperclip className="h-4 w-4 group-hover:text-indigo-600 transition-colors" />
+                    )}
+                    <span className="text-xs font-semibold">{isUploading ? '上传中...' : '上传附件'}</span>
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={handleFileChange}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 bg-white">
+            <EditorContent editor={editor} />
+          </div>
+
+          <input name="content_text" type="hidden" value={contentText} />
+          <input name="content_json" type="hidden" value={contentJson} />
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-slate-100 bg-slate-50/50 p-5">
+            <p className="text-xs font-medium text-slate-400">
+              自动保存结构化 JSON 与纯文本，优化 Elasticsearch 检索体验。
+            </p>
+            <div className="flex gap-3 shrink-0">
+              <Link
+                href={cancelHref}
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
+              >
+                <X className="h-4 w-4" />
+                放弃修改
+              </Link>
+              <button
+                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-soft transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-floating active:scale-95"
+                type="submit"
+                form="note-form"
+              >
+                <Save className="h-4 w-4" />
+                保存笔记
+              </button>
+            </div>
+          </div>
+        </section>
+      </form>
+    </div>
   );
 }

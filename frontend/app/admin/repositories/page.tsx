@@ -14,8 +14,9 @@ import {
   AdminTextarea,
   buildAdminQuery,
 } from "../../../components/admin-ui";
-import { createRepositoryAction, deleteRepositoryAction, updateRepositoryAction } from "../actions";
-import { getAdminContent } from "../../../lib/api";
+import { RepositoryCoverInput } from "../../../components/repository-cover-input";
+import { deleteRepositoryAction } from "../actions";
+import { getAdminRepositories } from "../../../lib/api";
 
 type SearchParams = Promise<{
   modal?: "create" | "edit";
@@ -24,10 +25,10 @@ type SearchParams = Promise<{
 
 export default async function AdminRepositoriesPage({ searchParams }: { searchParams?: SearchParams }) {
   const query = (searchParams ? await searchParams : undefined) ?? {};
-  const adminContent = await getAdminContent();
+  const adminRepositories = await getAdminRepositories();
   const editingRepository =
     query.modal === "edit" && query.repository_id
-      ? adminContent.repositories.find((item) => item.id === Number(query.repository_id)) ?? null
+      ? adminRepositories.repositories.find((item) => item.id === Number(query.repository_id)) ?? null
       : null;
   const closeHref = `/admin/repositories${buildAdminQuery(query, { modal: null, repository_id: null })}`;
 
@@ -62,11 +63,11 @@ export default async function AdminRepositoriesPage({ searchParams }: { searchPa
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {adminContent.repositories.map((repository) => (
-                <tr key={repository.id} className="hover:bg-slate-50/70">
-                  <td className="px-4 py-3 font-medium text-slate-900">{repository.name}</td>
+              {adminRepositories.repositories.map((repository) => (
+                <tr key={repository.id} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="px-4 py-3 font-bold text-slate-900">{repository.name}</td>
                   <td className="px-4 py-3 text-slate-600">{repository.slug}</td>
-                  <td className="max-w-[360px] px-4 py-3 text-slate-600">{repository.description || "-"}</td>
+                  <td className="max-w-[360px] px-4 py-3 text-slate-600 truncate">{repository.description || "-"}</td>
                   <td className="px-4 py-3 text-slate-600">L{repository.min_clearance_level}</td>
                   <td className="px-4 py-3 text-slate-600">{repository.folder_count}</td>
                   <td className="px-4 py-3 text-slate-600">{repository.note_count}</td>
@@ -110,6 +111,23 @@ export default async function AdminRepositoriesPage({ searchParams }: { searchPa
   );
 }
 
+function resolveRepositoryCoverPreview(repository?: {
+  slug: string;
+  cover_image_url: string;
+  has_cover_image_upload: boolean;
+}): string | null {
+  if (!repository) {
+    return null;
+  }
+  if (repository.has_cover_image_upload) {
+    return `/api/repositories/${repository.slug}/cover`;
+  }
+  if (repository.cover_image_url) {
+    return repository.cover_image_url;
+  }
+  return null;
+}
+
 function RepositoryModal({
   closeHref,
   repository,
@@ -120,25 +138,27 @@ function RepositoryModal({
   returnPath: string;
 }) {
   const isEdit = Boolean(repository);
-  const formAction = isEdit ? updateRepositoryAction : createRepositoryAction;
+  const currentCoverUrl = resolveRepositoryCoverPreview(repository);
 
   return (
     <AdminModal
       closeHref={closeHref}
-      title={isEdit ? "修改仓库信息" : "新建仓库"}
-      description="维护仓库名称、说明、访问 slug 与基础密级。"
+      title={isEdit ? "修改仓库信息" : "新建知识仓库"}
+      description="维护仓库的基础信息、访问短链以及美观的视觉封面图。"
     >
-      <form action={formAction} className="space-y-6">
+      <form action="/api/admin/repositories/save" className="space-y-6" encType="multipart/form-data" method="POST">
         {isEdit ? <input name="repository_id" type="hidden" value={repository.id} /> : null}
+        <input name="current_cover_image_url" type="hidden" value={repository?.cover_image_url ?? ""} />
         <input name="return_path" type="hidden" value={returnPath} />
+        
         <div className="grid gap-5 lg:grid-cols-2">
           <div>
             <AdminFieldLabel>仓库名称</AdminFieldLabel>
-            <AdminInput defaultValue={repository?.name ?? ""} name="name" required />
+            <AdminInput defaultValue={repository?.name ?? ""} name="name" required placeholder="如：前端架构组知识库" />
           </div>
           <div>
             <AdminFieldLabel>访问短链</AdminFieldLabel>
-            <AdminInput defaultValue={repository?.slug ?? ""} name="slug" required />
+            <AdminInput defaultValue={repository?.slug ?? ""} name="slug" required placeholder="如：frontend" />
           </div>
           <div>
             <AdminFieldLabel>基础密级</AdminFieldLabel>
@@ -151,19 +171,26 @@ function RepositoryModal({
             </AdminSelect>
           </div>
           <div>
-            <AdminFieldLabel>仓库概况</AdminFieldLabel>
-            <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-500">
-              {repository ? `${repository.folder_count} 个目录 · ${repository.note_count} 篇笔记` : "新仓库还没有内容"}
+            <AdminFieldLabel>内容概况</AdminFieldLabel>
+            <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-500">
+              {repository ? `${repository.folder_count} 个目录 · ${repository.note_count} 篇文档` : "全新创建，暂无数据"}
             </div>
           </div>
+          
           <div className="lg:col-span-2">
-            <AdminFieldLabel>仓库说明</AdminFieldLabel>
-            <AdminTextarea className="min-h-[120px]" defaultValue={repository?.description ?? ""} name="description" />
+            <AdminFieldLabel>仓库视觉封面图</AdminFieldLabel>
+            <RepositoryCoverInput defaultPreviewUrl={currentCoverUrl} />
+          </div>
+
+          <div className="lg:col-span-2">
+            <AdminFieldLabel>仓库详细说明</AdminFieldLabel>
+            <AdminTextarea className="min-h-[100px]" defaultValue={repository?.description ?? ""} name="description" placeholder="简单描述该仓库的主要内容定位与受众群体..." />
           </div>
         </div>
-        <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+        
+        <div className="flex justify-end gap-3 border-t border-slate-100 pt-6">
           <Link href={closeHref}>
-            <AdminSecondaryButton>取消</AdminSecondaryButton>
+            <AdminSecondaryButton>取消操作</AdminSecondaryButton>
           </Link>
           <AdminPrimaryButton type="submit">{isEdit ? "保存修改" : "确认创建"}</AdminPrimaryButton>
         </div>
