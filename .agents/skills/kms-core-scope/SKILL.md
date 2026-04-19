@@ -28,4 +28,5 @@ Use this skill to prevent scope drift and requirement misunderstanding.
 - Keep MVP-first decisions.
 - Do not silently expand requirements across unrelated modules.
 - Preserve current stable policies from `任务.md`, especially fixed-model QA and disabled dynamic model governance.
+- Preserve the current admin baseline: independent admin shell, modular admin pages, and a lightweight overview without fabricated analytics.
 - Treat temporary blockers in `进度.md` as delivery status, not as product scope.

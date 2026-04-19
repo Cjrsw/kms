@@ -15,6 +15,7 @@ Use this skill to execute development work consistently.
 4. Implement changes in small verifiable slices.
 5. Run compile/build checks and runtime checks that match the changed modules.
 6. Report results with concrete verification evidence and explicit blockers.
+7. If the task changes any fact or rule already described in `任务.md`, `进度.md`, or `docs/安全基线.md`, update the affected markdown document before closing the task.
 
 ## Mandatory Reporting
 
@@ -27,5 +28,5 @@ Use this skill to execute development work consistently.
 - Keep changes aligned with the current architecture and scope.
 - Avoid broad refactors unless the user explicitly asks.
 - Separate code defects from environment or configuration blockers.
-- Do not edit `任务.md` or `进度.md` unless the user explicitly asks.
+- Do not leave markdown authority files stale after changing behavior that they describe.
 - When runtime verification is blocked, provide the exact command or log that proves the blocker.

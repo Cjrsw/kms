@@ -19,9 +19,12 @@ Use this skill as the repo-level dispatcher for KMS work.
 4. Keep the current stable project facts in mind:
    - chat and embedding runtime are fixed by `.env`
    - admin AI area only keeps `Sys Prompt` and QA audit
+   - admin backend uses an independent `AdminShell`; do not mix it back into the front-office sidebar
+   - admin overview should stay lightweight until stable analytics fields exist; do not invent performance or token metrics without real backend records
    - dynamic model governance and user model preference are disabled
    - PowerShell should read Chinese files with `Get-Content -Encoding UTF8`
 5. Report with the repo convention: cannot do, can do, changed, verified, blocked.
+6. If the completed work changes any stable rule, scope boundary, current status, blocker, or next step that is described in `任务.md` / `进度.md` / `docs/安全基线.md`, update the affected document before finishing.
 
 ## Constraints
 
@@ -29,5 +32,7 @@ Use this skill as the repo-level dispatcher for KMS work.
 - Treat `任务.md` as stable rules, boundaries, and priorities.
 - Treat `进度.md` as current state, verified results, blockers, and next steps.
 - Use code to verify actual implementation; if it conflicts with higher-priority intent, call out the mismatch before changing code.
+- When the user’s requirement is based on these markdown documents and the implementation changes that basis, update the affected markdown documents as part of the same task closeout.
 - Do not reintroduce old model CRUD, runtime model switching, or per-user model preference unless the user explicitly asks.
+- Do not add dashboard analytics cards or charts that rely on unrecorded fields; if the data source is missing, document the gap and keep the overview simple.
 - Do not invent model configuration, runtime success, or verification results.
