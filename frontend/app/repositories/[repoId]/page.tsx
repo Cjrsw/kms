@@ -4,12 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import {
   Folder, FileText, ChevronRight, FolderPlus,
-  FilePlus, Layers3, X, AlertCircle, Trash2, ChevronDown, MoreHorizontal, FilePenLine
+  FilePlus, Layers3, X, AlertCircle, Trash2, ChevronDown, FilePenLine
 } from "lucide-react";
 
 import { AppShell } from "../../../components/app-shell";
 import { requireCurrentUser } from "../../../lib/auth";
-import { createFolderUser, createNoteUser, deleteFolderUser, deleteNoteUser, getRepository } from "../../../lib/api";
+import { createFolderUser, createNoteUser, deleteNoteUser, getRepository } from "../../../lib/api";
 
 // 工具函数：利用 URL SearchParams 无缝更新 UI 状态
 const buildQuery = (current: any, updates: Record<string, string | number | null>) => {
@@ -142,20 +142,6 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
     redirect(`/repositories/${repoId}${fId ? `?folder=${Number(fId)}` : ""}`);
   }
 
-  async function handleDeleteFolder(formData: FormData) {
-    "use server";
-    const folderId = Number(String(formData.get("folder_id") ?? "").trim());
-    if (!Number.isFinite(folderId)) redirect(`/repositories/${repoId}?error=${encodeURIComponent("缺少目录ID")}`);
-    try {
-      await deleteFolderUser(repoId, folderId);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "删除失败";
-      redirect(`/repositories/${repoId}?error=${encodeURIComponent(msg)}`);
-    }
-    revalidatePath(`/repositories/${repoId}`);
-    redirect(`/repositories/${repoId}`);
-  }
-
   async function handleDeleteNote(formData: FormData) {
     "use server";
     const noteId = Number(String(formData.get("note_id") ?? "").trim());
@@ -167,7 +153,7 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
       redirect(`/repositories/${repoId}?error=${encodeURIComponent(msg)}`);
     }
     revalidatePath(`/repositories/${repoId}`);
-    redirect(`/repositories/${repoId}`);
+    redirect(`/repositories/${repoId}${currentFolderId ? `?folder=${currentFolderId}` : ""}`);
   }
 
   return (
@@ -211,12 +197,42 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                     query={query}
                     buildQuery={buildQuery}
                     repoId={repoId}
-                    onDeleteFolder={handleDeleteFolder}
                     onDeleteNote={handleDeleteNote}
                   />
                 ))}
               </div>
             )}
+
+            <div className="mt-6">
+              <div className="flex items-center justify-between px-2 py-1 mb-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">根目录笔记</span>
+                <Link href={buildQuery(query, { create: 'note', parent: null, error: null })} className="text-slate-400 hover:text-emerald-600">
+                  <FilePlus className="h-4 w-4" />
+                </Link>
+              </div>
+              {rootNotes.length === 0 ? (
+                <p className="px-2 py-2 text-sm text-slate-400">暂无根目录笔记</p>
+              ) : (
+                <div className="space-y-0.5">
+                  {rootNotes.map((note: any) => (
+                    <div key={note.id} className="group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-600 hover:bg-slate-200/50">
+                      <Link href={`/repositories/${repoId}/notes/${note.id}`} className="flex min-w-0 flex-1 items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400 group-hover:text-indigo-500" />
+                        <span className="truncate font-medium">{note.title}</span>
+                      </Link>
+                      {note.can_delete ? (
+                        <form action={handleDeleteNote}>
+                          <input type="hidden" name="note_id" value={note.id} />
+                          <button type="submit" className="p-1 text-slate-400 transition-colors hover:text-rose-500" title="删除笔记">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </form>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </aside>
 
@@ -307,13 +323,8 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                     <div className="hidden sm:block col-span-3 text-right text-sm text-slate-400">
                       -
                     </div>
-                    <div className="col-span-5 sm:col-span-1 flex items-center justify-end">
-                      <form action={handleDeleteFolder}>
-                        <input type="hidden" name="folder_id" value={folder.id} />
-                        <button type="submit" className="text-slate-300 hover:text-rose-500 transition-colors p-1" title="删除目录">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </form>
+                    <div className="col-span-5 sm:col-span-1 flex items-center justify-end text-sm text-slate-400">
+                      管理员后台删除
                     </div>
                   </div>
                 ))}
@@ -333,13 +344,8 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
                     <div className="hidden sm:block col-span-3 text-right text-sm text-slate-500">
                       {new Date(note.updated_at).toLocaleDateString()}
                     </div>
-                    <div className="col-span-5 sm:col-span-1 flex items-center justify-end">
-                      <form action={handleDeleteNote}>
-                        <input type="hidden" name="note_id" value={note.id} />
-                        <button type="submit" className="text-slate-300 hover:text-rose-500 transition-colors p-1" title="删除笔记">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </form>
+                    <div className="col-span-5 sm:col-span-1 flex items-center justify-end text-sm text-slate-400">
+                      {note.can_delete ? "侧边栏删除" : "-"}
                     </div>
                   </div>
                 ))}
@@ -408,7 +414,7 @@ export default async function RepositoryDetailPage({ params, searchParams }: any
   );
 }
 
-function FolderNode({ node, notes, currentFolderId, query, buildQuery, repoId, onDeleteFolder, onDeleteNote }: any) {
+function FolderNode({ node, notes, currentFolderId, query, buildQuery, repoId, onDeleteNote }: any) {
   const isSelected = currentFolderId === node.id;
   const childNotes = notes.filter((note: any) => note.folder_id === node.id);
   const hasChildren = (node.children && node.children.length > 0) || childNotes.length > 0;
@@ -448,15 +454,24 @@ function FolderNode({ node, notes, currentFolderId, query, buildQuery, repoId, o
                 query={query}
                 buildQuery={buildQuery}
                 repoId={repoId}
-                onDeleteFolder={onDeleteFolder}
                 onDeleteNote={onDeleteNote}
               />
            ))}
            {childNotes.map((note: any) => (
-             <Link key={note.id} href={`/repositories/${repoId}/notes/${note.id}`} className="group flex items-center px-2 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-200/50 hover:text-indigo-700 transition-colors">
-               <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400 mr-2 group-hover:text-indigo-500" />
-               <span className="truncate flex-1">{note.title}</span>
-             </Link>
+             <div key={note.id} className="group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-200/50 hover:text-indigo-700">
+               <Link href={`/repositories/${repoId}/notes/${note.id}`} className="flex min-w-0 flex-1 items-center">
+                 <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400 mr-2 group-hover:text-indigo-500" />
+                 <span className="truncate flex-1">{note.title}</span>
+               </Link>
+               {note.can_delete ? (
+                 <form action={onDeleteNote}>
+                   <input type="hidden" name="note_id" value={note.id} />
+                   <button type="submit" className="p-1 text-slate-400 transition-colors hover:text-rose-500" title="删除笔记">
+                     <Trash2 className="h-3.5 w-3.5" />
+                   </button>
+                 </form>
+               ) : null}
+             </div>
            ))}
         </div>
       )}

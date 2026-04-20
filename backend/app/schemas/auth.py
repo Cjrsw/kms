@@ -20,6 +20,7 @@ class TokenResponse(BaseModel):
     position: str | None = None
     gender: str | None = None
     bio: str | None = None
+    has_avatar_upload: bool = False
     need_password_change: bool = False
 
 
@@ -36,6 +37,7 @@ class CurrentUserResponse(BaseModel):
     position: str | None = None
     gender: str | None = None
     bio: str | None = None
+    has_avatar_upload: bool = False
     need_password_change: bool = False
 
 
@@ -50,3 +52,19 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class FavoriteNoteItem(BaseModel):
+    note_id: int
+    repository_slug: str
+    repository_name: str
+    title: str
+    author_name: str
+    clearance_level: int
+    updated_at: str
+    href: str
+
+
+class FavoriteNotesResponse(BaseModel):
+    total: int
+    items: list[FavoriteNoteItem]

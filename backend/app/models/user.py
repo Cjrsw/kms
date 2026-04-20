@@ -38,6 +38,7 @@ class User(Base):
     position: Mapped[str | None] = mapped_column(String(100), nullable=True)
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    avatar_object_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     clearance_level: Mapped[int] = mapped_column(Integer, default=1)
@@ -60,6 +61,10 @@ class User(Base):
         cascade="all, delete-orphan",
     )
     qa_audit_logs: Mapped[list["QaAuditLog"]] = relationship(back_populates="user")
+    authored_notes: Mapped[list["Note"]] = relationship(back_populates="author")
+    note_likes: Mapped[list["NoteLike"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    note_favorites: Mapped[list["NoteFavorite"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    note_comments: Mapped[list["NoteComment"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Role(Base):

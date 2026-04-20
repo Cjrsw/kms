@@ -10,19 +10,28 @@ from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models.content import Attachment, Folder, Note, Repository
+from app.models.content import Attachment, Folder, Note, NoteComment, NoteFavorite, NoteLike, Repository
 from app.models.user import User
 from app.schemas.repository import (
     AttachmentItem,
     FolderItem,
+    NoteCommentCreateRequest,
+    NoteCommentItem,
     NoteDetailResponse,
+    NoteFavoriteResponse,
+    NoteLikeResponse,
     NoteListItem,
     NoteCreateRequest,
     NoteUpdateRequest,
     RepositoryDetailResponse,
     RepositoryListItem,
 )
-from app.services.search import delete_note_document, index_note, rebuild_notes_index
+from app.services.content_cleanup import (
+    cleanup_deleted_note_resources,
+    collect_descendant_folder_ids,
+    collect_note_cleanup_payload,
+)
+from app.services.search import index_note
 from app.services.ingestion import extract_attachment_text, upsert_attachment_text
 from app.services.storage import (
     build_attachment_object_key,
@@ -59,7 +68,7 @@ def list_repositories(
             note for note in repository.notes if note.min_clearance_level <= user.clearance_level
         ]
         latest_notes = [
-            _serialize_note_list_item(note)
+            _serialize_note_list_item(note, user)
             for note in sorted(visible_notes, key=lambda item: (item.created_at, item.id), reverse=True)
             if note.created_at >= recent_cutoff
         ][:LATEST_NOTE_LIMIT]
@@ -118,7 +127,7 @@ def get_repository(
         if folder.min_clearance_level <= user.clearance_level
     ]
     visible_notes = [
-        _serialize_note_list_item(note)
+        _serialize_note_list_item(note, user)
         for note in repository.notes
         if note.min_clearance_level <= user.clearance_level
     ]
@@ -173,6 +182,12 @@ def get_note(
 
     note = (
         db.query(Note)
+        .options(
+            selectinload(Note.attachments),
+            selectinload(Note.favorites),
+            selectinload(Note.likes),
+            selectinload(Note.comments).selectinload(NoteComment.user),
+        )
         .filter(Note.repository_id == repository.id, Note.id == note_id)
         .first()
     )
@@ -182,17 +197,7 @@ def get_note(
     if note.min_clearance_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
 
-    return NoteDetailResponse(
-        id=note.id,
-        repository_id=note.repository_id,
-        folder_id=note.folder_id,
-        title=note.title,
-        content_json=note.content_json,
-        content_text=note.content_text,
-        clearance_level=note.min_clearance_level,
-        updated_at=note.updated_at.isoformat(),
-        attachments=_serialize_attachments(note.attachments),
-    )
+    return _serialize_note_detail(note, user)
 
 
 @router.put("/{repository_slug}/notes/{note_id}", response_model=NoteDetailResponse)
@@ -237,17 +242,8 @@ def update_note(
     db.refresh(note)
     index_note(db, note.id)
 
-    return NoteDetailResponse(
-        id=note.id,
-        repository_id=note.repository_id,
-        folder_id=note.folder_id,
-        title=note.title,
-        content_json=note.content_json,
-        content_text=note.content_text,
-        clearance_level=note.min_clearance_level,
-        updated_at=note.updated_at.isoformat(),
-        attachments=_serialize_attachments(note.attachments),
-    )
+    db.refresh(note)
+    return _serialize_note_detail(_load_note_detail(db, note.id), user)
 
 
 @router.post("/{repository_slug}/notes", response_model=NoteDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -299,6 +295,7 @@ def create_note_user(
     note = Note(
         repository_id=repository.id,
         folder_id=payload.folder_id,
+        author_user_id=user.id,
         title=payload.title.strip(),
         author_name=(user.full_name or user.username).strip() or "系统",
         content_text=content_text,
@@ -310,17 +307,7 @@ def create_note_user(
     db.refresh(note)
     index_note(db, note.id)
 
-    return NoteDetailResponse(
-        id=note.id,
-        repository_id=note.repository_id,
-        folder_id=note.folder_id,
-        title=note.title,
-        content_json=note.content_json,
-        content_text=note.content_text,
-        clearance_level=note.min_clearance_level,
-        updated_at=note.updated_at.isoformat(),
-        attachments=[],
-    )
+    return _serialize_note_detail(_load_note_detail(db, note.id), user)
 
 class FolderCreateRequest(BaseModel):
     name: str
@@ -386,16 +373,13 @@ def delete_note_user(
     db: Annotated[Session, Depends(get_db)],
 ) -> Response:
     _, note = _get_repository_and_note(db, repository_slug, note_id)
-    _ensure_can_delete_by_clearance(user, note.min_clearance_level)
+    _ensure_can_delete_note(user, note)
 
-    object_keys = [attachment.object_key for attachment in note.attachments]
-    deleted_note_id = note.id
+    deleted_note_ids, object_keys = collect_note_cleanup_payload([note])
     db.delete(note)
     db.commit()
 
-    for object_key in object_keys:
-        remove_object(object_key)
-    delete_note_document(deleted_note_id)
+    cleanup_deleted_note_resources(deleted_note_ids, object_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -421,18 +405,11 @@ def delete_folder_user(
     if folder is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
 
-    all_folders = db.query(Folder).filter(Folder.repository_id == repository.id).all()
-    descendant_ids = _collect_descendant_folder_ids(folder.id, all_folders)
+    if not _is_admin_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admin can delete folders.")
 
-    is_admin = _is_admin_user(user)
-    if not is_admin:
-        folder_level_violates = any(
-            current_folder.min_clearance_level > user.clearance_level
-            for current_folder in all_folders
-            if current_folder.id in descendant_ids
-        )
-        if folder_level_violates:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Folder access denied.")
+    all_folders = db.query(Folder).filter(Folder.repository_id == repository.id).all()
+    descendant_ids = collect_descendant_folder_ids(folder.id, all_folders)
 
     notes_to_delete = (
         db.query(Note)
@@ -444,22 +421,130 @@ def delete_folder_user(
         .all()
     )
 
-    if not is_admin:
-        for note in notes_to_delete:
-            if note.min_clearance_level > user.clearance_level:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
-
-    object_keys: list[str] = []
+    deleted_note_ids, object_keys = collect_note_cleanup_payload(notes_to_delete)
     for note in notes_to_delete:
-        object_keys.extend(attachment.object_key for attachment in note.attachments)
         db.delete(note)
 
     db.delete(folder)
     db.commit()
 
-    for object_key in object_keys:
-        remove_object(object_key)
-    rebuild_notes_index(db)
+    cleanup_deleted_note_resources(deleted_note_ids, object_keys)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{repository_slug}/notes/{note_id}/like", response_model=NoteLikeResponse)
+def toggle_note_like(
+    repository_slug: str,
+    note_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> NoteLikeResponse:
+    _, note = _get_repository_and_note(db, repository_slug, note_id)
+    if note.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+
+    existing = (
+        db.query(NoteLike)
+        .filter(NoteLike.note_id == note.id, NoteLike.user_id == user.id)
+        .first()
+    )
+    if existing is None:
+        db.add(NoteLike(note_id=note.id, user_id=user.id))
+        liked_by_me = True
+    else:
+        db.delete(existing)
+        liked_by_me = False
+    db.commit()
+
+    like_count = db.query(NoteLike).filter(NoteLike.note_id == note.id).count()
+    return NoteLikeResponse(like_count=like_count, liked_by_me=liked_by_me)
+
+
+@router.post("/{repository_slug}/notes/{note_id}/favorite", response_model=NoteFavoriteResponse)
+def toggle_note_favorite(
+    repository_slug: str,
+    note_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> NoteFavoriteResponse:
+    _, note = _get_repository_and_note(db, repository_slug, note_id)
+    if note.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+
+    existing = (
+        db.query(NoteFavorite)
+        .filter(NoteFavorite.note_id == note.id, NoteFavorite.user_id == user.id)
+        .first()
+    )
+    if existing is None:
+        db.add(NoteFavorite(note_id=note.id, user_id=user.id))
+        favorited_by_me = True
+    else:
+        db.delete(existing)
+        favorited_by_me = False
+    db.commit()
+
+    favorite_count = db.query(NoteFavorite).filter(NoteFavorite.note_id == note.id).count()
+    return NoteFavoriteResponse(favorite_count=favorite_count, favorited_by_me=favorited_by_me)
+
+
+@router.post(
+    "/{repository_slug}/notes/{note_id}/comments",
+    response_model=NoteCommentItem,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_note_comment(
+    repository_slug: str,
+    note_id: int,
+    payload: NoteCommentCreateRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> NoteCommentItem:
+    _, note = _get_repository_and_note(db, repository_slug, note_id)
+    if note.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment cannot be empty.")
+
+    comment = NoteComment(
+        note_id=note.id,
+        user_id=user.id,
+        content=content,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    comment.user = user
+    return _serialize_note_comment(comment, user)
+
+
+@router.delete("/{repository_slug}/notes/{note_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note_comment(
+    repository_slug: str,
+    note_id: int,
+    comment_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    _, note = _get_repository_and_note(db, repository_slug, note_id)
+    if note.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+
+    comment = (
+        db.query(NoteComment)
+        .options(selectinload(NoteComment.user))
+        .filter(NoteComment.note_id == note.id, NoteComment.id == comment_id)
+        .first()
+    )
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found.")
+    if not (_is_admin_user(user) or comment.user_id == user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Comment delete denied.")
+
+    db.delete(comment)
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -689,20 +774,63 @@ def _serialize_attachment(attachment: Attachment) -> AttachmentItem:
     )
 
 
-def _serialize_note_list_item(note: Note) -> NoteListItem:
+def _serialize_note_list_item(note: Note, user: User) -> NoteListItem:
     return NoteListItem(
         id=note.id,
         title=note.title,
         folder_id=note.folder_id,
+        author_name=(note.author_name or "").strip() or "系统",
+        author_user_id=note.author_user_id,
         clearance_level=note.min_clearance_level,
         created_at=note.created_at.isoformat(),
         updated_at=note.updated_at.isoformat(),
         attachment_count=len(note.attachments),
+        can_delete=_can_delete_note(user, note),
     )
 
 
 def _serialize_attachments(attachments: list[Attachment]) -> list[AttachmentItem]:
     return [_serialize_attachment(attachment) for attachment in attachments]
+
+
+def _serialize_note_detail(note: Note, user: User) -> NoteDetailResponse:
+    return NoteDetailResponse(
+        id=note.id,
+        repository_id=note.repository_id,
+        folder_id=note.folder_id,
+        title=note.title,
+        author_name=(note.author_name or "").strip() or "系统",
+        author_user_id=note.author_user_id,
+        content_json=note.content_json,
+        content_text=note.content_text,
+        clearance_level=note.min_clearance_level,
+        updated_at=note.updated_at.isoformat(),
+        can_delete=_can_delete_note(user, note),
+        like_count=len(note.likes),
+        liked_by_me=any(like.user_id == user.id for like in note.likes),
+        favorite_count=len(note.favorites),
+        favorited_by_me=any(favorite.user_id == user.id for favorite in note.favorites),
+        comments=[
+            _serialize_note_comment(comment, user)
+            for comment in sorted(note.comments, key=lambda item: (item.created_at, item.id))
+        ],
+        attachments=_serialize_attachments(note.attachments),
+    )
+
+
+def _serialize_note_comment(comment: NoteComment, user: User) -> NoteCommentItem:
+    author_name = ""
+    if comment.user is not None:
+        author_name = (comment.user.full_name or comment.user.username or "").strip()
+    return NoteCommentItem(
+        id=comment.id,
+        author_user_id=comment.user_id,
+        author_name=author_name or "已删除用户",
+        content=comment.content,
+        created_at=comment.created_at.isoformat(),
+        updated_at=comment.updated_at.isoformat(),
+        can_delete=_is_admin_user(user) or comment.user_id == user.id,
+    )
 
 
 def _get_repository_and_note(db: Session, repository_slug: str, note_id: int) -> tuple[Repository, Note]:
@@ -741,30 +869,45 @@ def _resolve_cover_media_type(object_key: str) -> str:
     return "application/octet-stream"
 
 
-def _collect_descendant_folder_ids(root_folder_id: int, folders: list[Folder]) -> set[int]:
-    children_map: dict[int, list[int]] = {}
-    for folder in folders:
-        if folder.parent_id is None:
-            continue
-        children_map.setdefault(folder.parent_id, []).append(folder.id)
-
-    visited: set[int] = set()
-    stack = [root_folder_id]
-    while stack:
-        current = stack.pop()
-        if current in visited:
-            continue
-        visited.add(current)
-        stack.extend(children_map.get(current, []))
-    return visited
+def _load_note_detail(db: Session, note_id: int) -> Note:
+    note = (
+        db.query(Note)
+        .options(
+            selectinload(Note.attachments),
+            selectinload(Note.favorites),
+            selectinload(Note.likes),
+            selectinload(Note.comments).selectinload(NoteComment.user),
+        )
+        .filter(Note.id == note_id)
+        .first()
+    )
+    if note is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found.")
+    return note
 
 
 def _is_admin_user(user: User) -> bool:
     return any(user_role.role.code == ADMIN_ROLE_CODE for user_role in user.roles)
 
 
-def _ensure_can_delete_by_clearance(user: User, target_clearance_level: int) -> None:
+def _can_delete_note(user: User, note: Note) -> bool:
     if _is_admin_user(user):
-        return
-    if target_clearance_level > user.clearance_level:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+        return True
+    if note.min_clearance_level > user.clearance_level:
+        return False
+    if note.author_user_id is not None:
+        return note.author_user_id == user.id
+    normalized_author = (note.author_name or "").strip()
+    if not normalized_author:
+        return False
+    candidate_names = {
+        value.strip()
+        for value in (user.full_name, user.username)
+        if value and value.strip()
+    }
+    return normalized_author in candidate_names
+
+
+def _ensure_can_delete_note(user: User, note: Note) -> None:
+    if not _can_delete_note(user, note):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note delete denied.")

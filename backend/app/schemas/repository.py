@@ -5,10 +5,13 @@ class NoteListItem(BaseModel):
     id: int
     title: str
     folder_id: int | None
+    author_name: str
+    author_user_id: int | None
     clearance_level: int
     created_at: str
     updated_at: str
     attachment_count: int
+    can_delete: bool
 
 
 class AttachmentItem(BaseModel):
@@ -57,11 +60,46 @@ class NoteDetailResponse(BaseModel):
     repository_id: int
     folder_id: int | None
     title: str
+    author_name: str
+    author_user_id: int | None
     content_json: str
     content_text: str
     clearance_level: int
     updated_at: str
+    can_delete: bool
+    like_count: int
+    liked_by_me: bool
+    favorite_count: int
+    favorited_by_me: bool
+    comments: list["NoteCommentItem"]
     attachments: list[AttachmentItem]
+
+
+class NoteCommentItem(BaseModel):
+    id: int
+    author_user_id: int | None
+    author_name: str
+    content: str
+    created_at: str
+    updated_at: str
+    can_delete: bool
+
+
+class NoteLikeResponse(BaseModel):
+    like_count: int
+    liked_by_me: bool
+
+
+class NoteFavoriteResponse(BaseModel):
+    favorite_count: int
+    favorited_by_me: bool
+
+
+class NoteCommentCreateRequest(BaseModel):
+    content: str
+
+
+NoteDetailResponse.model_rebuild()
 
 
 class NoteUpdateRequest(BaseModel):

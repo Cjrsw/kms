@@ -15,7 +15,13 @@ from app.models.content import Attachment, Note, NoteChunk, Repository
 from app.models.user import User
 from app.schemas.search import SearchResponse, SearchResultItem
 from app.services.runtime_llm import ModelInvocationError, invoke_embedding, is_embedding_configured
-from app.services.vector_store import delete_points_by_note_id, reset_collection, search_similar_chunks, upsert_chunk_vectors
+from app.services.vector_store import (
+    delete_points_by_note_id,
+    delete_points_by_note_ids,
+    reset_collection,
+    search_similar_chunks,
+    upsert_chunk_vectors,
+)
 
 settings = get_settings()
 
@@ -179,6 +185,20 @@ def delete_note_document(note_id: int) -> None:
     client = get_es_client()
     client.delete_by_query(index=NOTES_INDEX, body={"query": {"term": {"note_id": note_id}}}, refresh=True)
     delete_points_by_note_id(note_id)
+
+
+def delete_note_documents(note_ids: list[int]) -> None:
+    valid_note_ids = sorted({note_id for note_id in note_ids if isinstance(note_id, int) and note_id > 0})
+    if not valid_note_ids:
+        return
+    ensure_notes_index()
+    client = get_es_client()
+    client.delete_by_query(
+        index=NOTES_INDEX,
+        body={"query": {"terms": {"note_id": valid_note_ids}}},
+        refresh=True,
+    )
+    delete_points_by_note_ids(valid_note_ids)
 
 
 def search_notes(

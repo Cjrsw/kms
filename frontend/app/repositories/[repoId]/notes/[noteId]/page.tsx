@@ -1,19 +1,22 @@
 import Link from "next/link";
-import { FileText, Sparkles, ChevronLeft, Pencil, ShieldAlert } from "lucide-react";
+import { FileText, Sparkles, ChevronLeft, Pencil, ShieldAlert, MessageCircle, ThumbsUp, Trash2, AlertCircle, Star } from "lucide-react";
 import { generateHTML } from "@tiptap/html";
 import StarterKit from "@tiptap/starter-kit";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { AppShell } from "../../../../../components/app-shell";
 import { AttachmentActions } from "../../../../../components/attachment-actions";
-import { getNote, getRepository } from "../../../../../lib/api";
+import { createNoteComment, deleteNoteComment, getNote, getRepository, toggleNoteFavorite, toggleNoteLike } from "../../../../../lib/api";
 import { requireCurrentUser } from "../../../../../lib/auth";
 
 type NoteDetailPageProps = {
   params: Promise<{ repoId: string; noteId: string }>;
+  searchParams?: Promise<{ error?: string }>;
 };
 
-export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
+export default async function NoteDetailPage({ params, searchParams }: NoteDetailPageProps) {
   const { repoId, noteId } = await params;
+  const query = (searchParams ? await searchParams : undefined) ?? {};
   const currentUser = await requireCurrentUser();
 
   let repository: Awaited<ReturnType<typeof getRepository>> | null = null;
@@ -36,6 +39,61 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
     renderedHtml = parsed ? generateHTML(parsed, [StarterKit]) : "";
   } catch {
     renderedHtml = "";
+  }
+
+  async function handleToggleLike() {
+    "use server";
+    try {
+      await toggleNoteLike(repoId, noteId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "点赞失败";
+      redirect(`/repositories/${repoId}/notes/${noteId}?error=${encodeURIComponent(msg)}`);
+    }
+    revalidatePath(`/repositories/${repoId}/notes/${noteId}`);
+    redirect(`/repositories/${repoId}/notes/${noteId}`);
+  }
+
+  async function handleToggleFavorite() {
+    "use server";
+    try {
+      await toggleNoteFavorite(repoId, noteId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "收藏失败";
+      redirect(`/repositories/${repoId}/notes/${noteId}?error=${encodeURIComponent(msg)}`);
+    }
+    revalidatePath(`/repositories/${repoId}/notes/${noteId}`);
+    revalidatePath("/profile");
+    revalidatePath("/profile/favorites");
+    redirect(`/repositories/${repoId}/notes/${noteId}`);
+  }
+
+  async function handleCreateComment(formData: FormData) {
+    "use server";
+    const content = String(formData.get("content") ?? "").trim();
+    try {
+      await createNoteComment(repoId, noteId, { content });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "评论失败";
+      redirect(`/repositories/${repoId}/notes/${noteId}?error=${encodeURIComponent(msg)}`);
+    }
+    revalidatePath(`/repositories/${repoId}/notes/${noteId}`);
+    redirect(`/repositories/${repoId}/notes/${noteId}`);
+  }
+
+  async function handleDeleteComment(formData: FormData) {
+    "use server";
+    const commentId = Number(String(formData.get("comment_id") ?? "").trim());
+    if (!Number.isFinite(commentId)) {
+      redirect(`/repositories/${repoId}/notes/${noteId}?error=${encodeURIComponent("缺少评论ID")}`);
+    }
+    try {
+      await deleteNoteComment(repoId, noteId, commentId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "删除评论失败";
+      redirect(`/repositories/${repoId}/notes/${noteId}?error=${encodeURIComponent(msg)}`);
+    }
+    revalidatePath(`/repositories/${repoId}/notes/${noteId}`);
+    redirect(`/repositories/${repoId}/notes/${noteId}`);
   }
 
   return (
@@ -68,8 +126,16 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
                 <span className="text-slate-800 font-mono text-xs">#{note.id}</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-slate-400">创建人</span>
+                <span className="text-slate-800">{note.author_name}</span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-slate-400">更新时间</span>
                 <span className="text-slate-800">{new Date(note.updated_at).toLocaleDateString("zh-CN")}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">互动</span>
+                <span className="text-slate-800">{note.like_count} 赞 · {note.comments.length} 评论</span>
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                 <span className="flex items-center gap-1.5"><ShieldAlert className="h-4 w-4 text-emerald-500" /> 最低密级</span>
@@ -107,8 +173,18 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
                 <span className="rounded-full bg-indigo-50 text-indigo-700 px-3 py-1">
                   知识仓库: {repository.name}
                 </span>
+                <span className="rounded-full bg-slate-100 text-slate-700 px-3 py-1">
+                  创建人: {note.author_name}
+                </span>
                 <span className="text-slate-400">{new Date(note.updated_at).toLocaleString("zh-CN", { hour12: false })} 更新</span>
               </div>
+
+              {query.error ? (
+                <div className="mb-6 flex items-start gap-3 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{query.error}</span>
+                </div>
+              ) : null}
 
               {/* AI 助手浮窗 */}
               <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-blue-50/50 p-4 shadow-sm">
@@ -126,6 +202,39 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
                   <Link href="/qa" className="ml-auto text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
                     进入独立问答面板 &rarr;
                   </Link>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <form action={handleToggleLike}>
+                  <button
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                      note.liked_by_me
+                        ? "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                    type="submit"
+                  >
+                    <ThumbsUp className="h-4 w-4" />
+                    {note.liked_by_me ? "已点赞" : "点赞"} · {note.like_count}
+                  </button>
+                </form>
+                <form action={handleToggleFavorite}>
+                  <button
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                      note.favorited_by_me
+                        ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                    type="submit"
+                  >
+                    <Star className="h-4 w-4" />
+                    {note.favorited_by_me ? "已收藏" : "收藏"} · {note.favorite_count}
+                  </button>
+                </form>
+                <div className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+                  <MessageCircle className="h-4 w-4" />
+                  评论 {note.comments.length}
                 </div>
               </div>
             </div>
@@ -151,6 +260,62 @@ export default async function NoteDetailPage({ params }: NoteDetailPageProps) {
             </div>
 
             {/* 附件区域 */}
+            <div className="mt-16 border-t border-slate-100 pt-10">
+              <h3 className="mb-6 text-lg font-bold text-slate-900 flex items-center gap-2">
+                讨论区
+                <span className="bg-slate-100 text-slate-500 text-xs py-0.5 px-2.5 rounded-full font-bold">{note.comments.length}</span>
+              </h3>
+              <form action={handleCreateComment} className="rounded-2xl border border-slate-200/60 bg-slate-50/60 p-4 shadow-sm">
+                <textarea
+                  name="content"
+                  required
+                  maxLength={2000}
+                  className="min-h-[120px] w-full resize-y rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
+                  placeholder="写下你的评论。评论只用于互动展示，不进入搜索和问答。"
+                />
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    发表评论
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-6 space-y-4">
+                {note.comments.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-8 text-sm text-slate-500">
+                    还没有评论。
+                  </div>
+                ) : (
+                  note.comments.map((comment) => (
+                    <div key={comment.id} className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="font-semibold text-slate-900">{comment.author_name}</div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            {new Date(comment.created_at).toLocaleString("zh-CN", { hour12: false })}
+                            {comment.updated_at !== comment.created_at ? " · 已编辑" : ""}
+                          </div>
+                        </div>
+                        {comment.can_delete ? (
+                          <form action={handleDeleteComment}>
+                            <input type="hidden" name="comment_id" value={comment.id} />
+                            <button type="submit" className="p-1 text-slate-400 transition-colors hover:text-rose-500" title="删除评论">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
+                      <div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-700">{comment.content}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="mt-16 border-t border-slate-100 pt-10">
               <h3 className="mb-6 text-lg font-bold text-slate-900 flex items-center gap-2">
                 笔记附件 

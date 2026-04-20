@@ -1,5 +1,16 @@
 from app.models.ai import AIModel, QaAuditLog, UserModelPreference
-from app.models.content import Attachment, AttachmentContent, Folder, IngestionJob, Note, NoteChunk, Repository
+from app.models.content import (
+    Attachment,
+    AttachmentContent,
+    Folder,
+    IngestionJob,
+    Note,
+    NoteChunk,
+    NoteComment,
+    NoteFavorite,
+    NoteLike,
+    Repository,
+)
 from app.models.system import SystemSetting
 from app.models.user import AuthAuditLog, Department, RevokedToken, Role, User, UserRole
 
@@ -13,6 +24,9 @@ __all__ = [
     "IngestionJob",
     "Note",
     "NoteChunk",
+    "NoteComment",
+    "NoteFavorite",
+    "NoteLike",
     "QaAuditLog",
     "Repository",
     "RevokedToken",

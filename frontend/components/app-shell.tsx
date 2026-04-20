@@ -37,6 +37,7 @@ export function AppShell({ title, description, children, contentClassName, curre
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const avatarUrl = currentUser.has_avatar_upload ? "/api/profile/avatar" : null;
 
   const visibleNavigationItems = navigationItems.filter((item) => {
     if (!item.requiredRoles) return true;
@@ -162,7 +163,11 @@ export function AppShell({ title, description, children, contentClassName, curre
                   collapsed ? "" : "mr-3"
                 )}
               >
-                {currentUser.full_name.slice(0, 1)}
+                {avatarUrl ? (
+                  <img alt={`${currentUser.full_name} avatar`} className="h-full w-full rounded-full object-cover" src={avatarUrl} />
+                ) : (
+                  currentUser.full_name.slice(0, 1)
+                )}
               </div>
               {!collapsed && (
                 <div className="flex-1 overflow-hidden">

@@ -51,7 +51,12 @@ from app.schemas.admin import (
     UserCreateRequest,
     UserUpdateRequest,
 )
-from app.services.search import delete_note_document, index_note, rebuild_notes_index
+from app.services.search import delete_note_documents, index_note
+from app.services.content_cleanup import (
+    cleanup_deleted_note_resources,
+    collect_descendant_folder_ids,
+    collect_note_cleanup_payload,
+)
 from app.services.storage import build_repository_cover_object_key, remove_object, upload_attachment_bytes
 from app.services.system_settings import (
     get_cors_origins_setting,
@@ -180,6 +185,18 @@ def list_repositories_admin(
         .order_by(Repository.id.asc())
         .all()
     )
+    repository_ids = [int(row.id) for row in rows]
+    folders_by_repository: dict[int, list[AdminFolderItem]] = {}
+    if repository_ids:
+        folders = (
+            db.query(Folder)
+            .options(selectinload(Folder.notes))
+            .filter(Folder.repository_id.in_(repository_ids))
+            .order_by(Folder.repository_id.asc(), Folder.id.asc())
+            .all()
+        )
+        for folder in folders:
+            folders_by_repository.setdefault(folder.repository_id, []).append(_serialize_folder(folder))
 
     repositories = [
         AdminRepositorySummaryItem(
@@ -192,6 +209,7 @@ def list_repositories_admin(
             min_clearance_level=int(row.min_clearance_level),
             folder_count=int(row.folder_count or 0),
             note_count=int(row.note_count or 0),
+            folders=folders_by_repository.get(int(row.id), []),
         )
         for row in rows
     ]
@@ -307,16 +325,30 @@ def delete_repository(
     _: Annotated[User, ADMIN_DEPENDENCY],
     db: Annotated[Session, Depends(get_db)],
 ) -> Response:
-    repository = db.query(Repository).filter(Repository.id == repository_id).first()
+    repository = (
+        db.query(Repository)
+        .options(selectinload(Repository.notes).selectinload(Note.attachments))
+        .filter(Repository.id == repository_id)
+        .first()
+    )
     if repository is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repository not found.")
 
     cover_object_key = repository.cover_image_object_key
+    note_ids = [note.id for note in repository.notes]
+    attachment_object_keys = [
+        attachment.object_key
+        for note in repository.notes
+        for attachment in note.attachments
+        if attachment.object_key
+    ]
     db.delete(repository)
     db.commit()
     if cover_object_key:
         remove_object(cover_object_key)
-    rebuild_notes_index(db)
+    for object_key in attachment_object_keys:
+        remove_object(object_key)
+    delete_note_documents(note_ids)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -379,9 +411,23 @@ def delete_folder(
     db: Annotated[Session, Depends(get_db)],
 ) -> Response:
     folder = _get_folder(db, folder_id)
+    all_folders = db.query(Folder).filter(Folder.repository_id == folder.repository_id).all()
+    descendant_ids = collect_descendant_folder_ids(folder.id, all_folders)
+    notes_to_delete = (
+        db.query(Note)
+        .options(selectinload(Note.attachments))
+        .filter(
+            Note.repository_id == folder.repository_id,
+            Note.folder_id.in_(descendant_ids),
+        )
+        .all()
+    )
+    deleted_note_ids, object_keys = collect_note_cleanup_payload(notes_to_delete)
+    for note in notes_to_delete:
+        db.delete(note)
     db.delete(folder)
     db.commit()
-    rebuild_notes_index(db)
+    cleanup_deleted_note_resources(deleted_note_ids, object_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -405,6 +451,7 @@ def create_note(
     note = Note(
         repository_id=repository.id,
         folder_id=payload.folder_id,
+        author_user_id=current_user.id,
         title=payload.title.strip(),
         author_name=(current_user.full_name or current_user.username).strip() or "系统",
         content_text=payload.content_text.strip(),
@@ -464,13 +511,19 @@ def delete_note(
     _: Annotated[User, ADMIN_DEPENDENCY],
     db: Annotated[Session, Depends(get_db)],
 ) -> Response:
-    note = db.query(Note).filter(Note.id == note_id).first()
+    note = (
+        db.query(Note)
+        .options(selectinload(Note.attachments))
+        .filter(Note.id == note_id)
+        .first()
+    )
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found.")
 
+    deleted_note_ids, object_keys = collect_note_cleanup_payload([note])
     db.delete(note)
     db.commit()
-    delete_note_document(note_id)
+    cleanup_deleted_note_resources(deleted_note_ids, object_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

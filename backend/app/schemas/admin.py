@@ -45,6 +45,7 @@ class AdminRepositorySummaryItem(BaseModel):
     min_clearance_level: int
     folder_count: int
     note_count: int
+    folders: list[AdminFolderItem] = []
 
 
 class AdminContentResponse(BaseModel):

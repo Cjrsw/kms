@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -43,6 +43,7 @@ class Note(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"))
     folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"), nullable=True)
+    author_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
     author_name: Mapped[str] = mapped_column(String(120), default="系统")
     content_json: Mapped[str] = mapped_column(Text, default="{}")
@@ -53,8 +54,12 @@ class Note(Base):
 
     repository: Mapped["Repository"] = relationship(back_populates="notes")
     folder: Mapped["Folder | None"] = relationship(back_populates="notes")
+    author: Mapped["User | None"] = relationship(back_populates="authored_notes")
     attachments: Mapped[list["Attachment"]] = relationship(back_populates="note", cascade="all, delete-orphan")
     chunks: Mapped[list["NoteChunk"]] = relationship(back_populates="note", cascade="all, delete-orphan")
+    likes: Mapped[list["NoteLike"]] = relationship(back_populates="note", cascade="all, delete-orphan")
+    favorites: Mapped[list["NoteFavorite"]] = relationship(back_populates="note", cascade="all, delete-orphan")
+    comments: Mapped[list["NoteComment"]] = relationship(back_populates="note", cascade="all, delete-orphan")
 
 
 class Attachment(Base):
@@ -114,3 +119,43 @@ class NoteChunk(Base):
     vector_point_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
 
     note: Mapped["Note"] = relationship(back_populates="chunks")
+
+
+class NoteLike(Base):
+    __tablename__ = "note_likes"
+    __table_args__ = (UniqueConstraint("note_id", "user_id", name="uq_note_like_note_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    note_id: Mapped[int] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    note: Mapped["Note"] = relationship(back_populates="likes")
+    user: Mapped["User"] = relationship(back_populates="note_likes")
+
+
+class NoteFavorite(Base):
+    __tablename__ = "note_favorites"
+    __table_args__ = (UniqueConstraint("note_id", "user_id", name="uq_note_favorite_note_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    note_id: Mapped[int] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    note: Mapped["Note"] = relationship(back_populates="favorites")
+    user: Mapped["User"] = relationship(back_populates="note_favorites")
+
+
+class NoteComment(Base):
+    __tablename__ = "note_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    note_id: Mapped[int] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    note: Mapped["Note"] = relationship(back_populates="comments")
+    user: Mapped["User"] = relationship(back_populates="note_comments")

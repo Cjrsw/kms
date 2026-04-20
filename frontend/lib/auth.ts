@@ -18,6 +18,7 @@ export type AuthUser = {
   position: string | null;
   gender: string | null;
   bio: string | null;
+  has_avatar_upload: boolean;
   need_password_change: boolean;
 };
 

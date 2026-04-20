@@ -28,10 +28,13 @@ export type RepositoryListItem = {
     id: number;
     title: string;
     folder_id: number | null;
+    author_name: string;
+    author_user_id: number | null;
     clearance_level: number;
     created_at: string;
     updated_at: string;
     attachment_count: number;
+    can_delete: boolean;
   }>;
 };
 
@@ -53,11 +56,24 @@ export type RepositoryDetail = {
     id: number;
     title: string;
     folder_id: number | null;
+    author_name: string;
+    author_user_id: number | null;
     clearance_level: number;
     created_at: string;
     updated_at: string;
     attachment_count: number;
+    can_delete: boolean;
   }>;
+};
+
+export type NoteCommentItem = {
+  id: number;
+  author_user_id: number | null;
+  author_name: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  can_delete: boolean;
 };
 
 export type NoteDetail = {
@@ -65,11 +81,35 @@ export type NoteDetail = {
   repository_id: number;
   folder_id: number | null;
   title: string;
+  author_name: string;
+  author_user_id: number | null;
   content_json: string;
   content_text: string;
   clearance_level: number;
   updated_at: string;
+  can_delete: boolean;
+  like_count: number;
+  liked_by_me: boolean;
+  favorite_count: number;
+  favorited_by_me: boolean;
+  comments: NoteCommentItem[];
   attachments: AttachmentItem[];
+};
+
+export type FavoriteNoteItem = {
+  note_id: number;
+  repository_slug: string;
+  repository_name: string;
+  title: string;
+  author_name: string;
+  clearance_level: number;
+  updated_at: string;
+  href: string;
+};
+
+export type FavoriteNotesResponse = {
+  total: number;
+  items: FavoriteNoteItem[];
 };
 
 export type SearchResultItem = {
@@ -198,6 +238,7 @@ export type AdminRepositorySummaryItem = {
   min_clearance_level: number;
   folder_count: number;
   note_count: number;
+  folders: AdminFolderItem[];
 };
 
 export type AdminContent = {
@@ -346,6 +387,22 @@ async function getRequiredAccessToken(): Promise<string> {
   return token;
 }
 
+async function buildApiError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const payload = (await response.json()) as { detail?: string | { message?: string } };
+    const detail = payload?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return new Error(detail);
+    }
+    if (detail && typeof detail === "object" && typeof detail.message === "string" && detail.message.trim()) {
+      return new Error(detail.message);
+    }
+  } catch {
+    // ignore parse failure and keep fallback
+  }
+  return new Error(fallback);
+}
+
 async function apiFetch<T>(path: string): Promise<T> {
   const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -360,7 +417,7 @@ async function apiFetch<T>(path: string): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${path}`);
+    throw await buildApiError(response, `API request failed: ${path}`);
   }
 
   return (await response.json()) as T;
@@ -383,7 +440,7 @@ async function apiJsonRequest<T>(path: string, method: "POST" | "PUT" | "DELETE"
   }
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${method} ${path}`);
+    throw await buildApiError(response, `API request failed: ${method} ${path}`);
   }
 
   if (response.status === 204) {
@@ -424,7 +481,7 @@ export async function createNoteUser(
     redirect("/logout");
   }
   if (!response.ok) {
-    throw new Error(`API request failed: create note in ${repositorySlug}`);
+    throw await buildApiError(response, `API request failed: create note in ${repositorySlug}`);
   }
   return (await response.json()) as NoteDetail;
 }
@@ -443,7 +500,7 @@ export async function deleteNoteUser(repositorySlug: string, noteId: number): Pr
     redirect("/logout");
   }
   if (!response.ok) {
-    throw new Error(`API request failed: delete note ${noteId}`);
+    throw await buildApiError(response, `API request failed: delete note ${noteId}`);
   }
 }
 
@@ -466,7 +523,7 @@ export async function createFolderUser(
     redirect("/logout");
   }
   if (!response.ok) {
-    throw new Error(`API request failed: create folder in ${repositorySlug}`);
+    throw await buildApiError(response, `API request failed: create folder in ${repositorySlug}`);
   }
   return (await response.json()) as { id: number; name: string; parent_id: number | null; clearance_level: number };
 }
@@ -485,8 +542,41 @@ export async function deleteFolderUser(repositorySlug: string, folderId: number)
     redirect("/logout");
   }
   if (!response.ok) {
-    throw new Error(`API request failed: delete folder ${folderId}`);
+    throw await buildApiError(response, `API request failed: delete folder ${folderId}`);
   }
+}
+
+export async function toggleNoteLike(repositorySlug: string, noteId: string): Promise<{ like_count: number; liked_by_me: boolean }> {
+  return apiJsonRequest<{ like_count: number; liked_by_me: boolean }>(
+    `/repositories/${repositorySlug}/notes/${noteId}/like`,
+    "POST"
+  );
+}
+
+export async function createNoteComment(
+  repositorySlug: string,
+  noteId: string,
+  payload: { content: string }
+): Promise<NoteCommentItem> {
+  return apiJsonRequest<NoteCommentItem>(`/repositories/${repositorySlug}/notes/${noteId}/comments`, "POST", payload);
+}
+
+export async function deleteNoteComment(
+  repositorySlug: string,
+  noteId: string,
+  commentId: number
+): Promise<void> {
+  await apiJsonRequest<void>(`/repositories/${repositorySlug}/notes/${noteId}/comments/${commentId}`, "DELETE");
+}
+
+export async function toggleNoteFavorite(
+  repositorySlug: string,
+  noteId: string
+): Promise<{ favorite_count: number; favorited_by_me: boolean }> {
+  return apiJsonRequest<{ favorite_count: number; favorited_by_me: boolean }>(
+    `/repositories/${repositorySlug}/notes/${noteId}/favorite`,
+    "POST"
+  );
 }
 
 export async function updateNote(
@@ -510,7 +600,7 @@ export async function updateNote(
   }
 
   if (!response.ok) {
-    throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}`);
+    throw await buildApiError(response, `API request failed: /repositories/${repositorySlug}/notes/${noteId}`);
   }
 
   return (await response.json()) as NoteDetail;
@@ -539,7 +629,7 @@ export async function uploadNoteAttachment(
   }
 
   if (!response.ok) {
-    throw new Error(`API request failed: /repositories/${repositorySlug}/notes/${noteId}/attachments`);
+    throw await buildApiError(response, `API request failed: /repositories/${repositorySlug}/notes/${noteId}/attachments`);
   }
 
   return (await response.json()) as AttachmentItem;
@@ -564,7 +654,7 @@ export async function deleteNoteAttachment(
     redirect("/logout");
   }
   if (!response.ok) {
-    throw new Error(`API request failed: delete attachment ${attachmentId}`);
+    throw await buildApiError(response, `API request failed: delete attachment ${attachmentId}`);
   }
 }
 
@@ -592,7 +682,7 @@ export async function replaceNoteAttachment(
     redirect("/logout");
   }
   if (!response.ok) {
-    throw new Error(`API request failed: replace attachment ${attachmentId}`);
+    throw await buildApiError(response, `API request failed: replace attachment ${attachmentId}`);
   }
   return (await response.json()) as AttachmentItem;
 }
@@ -911,6 +1001,35 @@ export async function updateAdminQaSystemPrompt(payload: { system_prompt: string
 
 export async function updateMyProfile(payload: ProfilePayload): Promise<void> {
   await apiJsonRequest<void>("/auth/me/profile", "PUT", payload);
+}
+
+export async function uploadMyAvatar(file: File): Promise<void> {
+  const token = await getRequiredAccessToken();
+  const formData = new FormData();
+  formData.set("file", file);
+  const response = await fetch(`${API_BASE_URL}/auth/me/avatar`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    redirect("/logout");
+  }
+  if (!response.ok) {
+    throw await buildApiError(response, "API request failed: upload avatar");
+  }
+}
+
+export async function deleteMyAvatar(): Promise<void> {
+  await apiJsonRequest<void>("/auth/me/avatar", "DELETE");
+}
+
+export async function getMyFavorites(): Promise<FavoriteNotesResponse> {
+  return apiFetch<FavoriteNotesResponse>("/auth/me/favorites");
 }
 
 export async function changeMyPassword(payload: { current_password: string; new_password: string }): Promise<void> {

@@ -15,7 +15,7 @@ import {
   buildAdminQuery,
 } from "../../../components/admin-ui";
 import { RepositoryCoverInput } from "../../../components/repository-cover-input";
-import { deleteRepositoryAction } from "../actions";
+import { deleteFolderAction, deleteRepositoryAction } from "../actions";
 import { getAdminRepositories } from "../../../lib/api";
 
 type SearchParams = Promise<{
@@ -37,7 +37,7 @@ export default async function AdminRepositoriesPage({ searchParams }: { searchPa
       <AdminPageSection
         eyebrow="Content"
         title="仓库管理"
-        description="后台只保留仓库级管理。目录与笔记不再放进后台，以免内容中心再次变得过重。"
+        description="后台保留仓库管理，并提供目录删除入口。目录删除会同步做附件、搜索索引和向量的定向清理。"
         action={
           <Link href={`/admin/repositories${buildAdminQuery(query, { modal: "create", repository_id: null })}`}>
             <AdminPrimaryButton className="gap-2">
@@ -64,37 +64,7 @@ export default async function AdminRepositoriesPage({ searchParams }: { searchPa
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {adminRepositories.repositories.map((repository) => (
-                <tr key={repository.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="px-4 py-3 font-bold text-slate-900">{repository.name}</td>
-                  <td className="px-4 py-3 text-slate-600">{repository.slug}</td>
-                  <td className="max-w-[360px] px-4 py-3 text-slate-600 truncate">{repository.description || "-"}</td>
-                  <td className="px-4 py-3 text-slate-600">L{repository.min_clearance_level}</td>
-                  <td className="px-4 py-3 text-slate-600">{repository.folder_count}</td>
-                  <td className="px-4 py-3 text-slate-600">{repository.note_count}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <Link
-                        href={`/admin/repositories${buildAdminQuery(query, {
-                          modal: "edit",
-                          repository_id: repository.id,
-                        })}`}
-                      >
-                        <AdminSecondaryButton className="h-9 gap-1 px-3">
-                          <Edit3 className="h-3.5 w-3.5" />
-                          编辑
-                        </AdminSecondaryButton>
-                      </Link>
-                      <form action={deleteRepositoryAction}>
-                        <input name="repository_id" type="hidden" value={repository.id} />
-                        <input name="return_path" type="hidden" value="/admin/repositories" />
-                        <AdminDangerButton className="gap-1" type="submit">
-                          <Trash2 className="h-3.5 w-3.5" />
-                          删除
-                        </AdminDangerButton>
-                      </form>
-                    </div>
-                  </td>
-                </tr>
+                <RepositoryRow key={repository.id} query={query} repository={repository} />
               ))}
             </tbody>
           </table>
@@ -108,6 +78,87 @@ export default async function AdminRepositoriesPage({ searchParams }: { searchPa
         <RepositoryModal closeHref={closeHref} repository={editingRepository} returnPath="/admin/repositories" />
       ) : null}
     </div>
+  );
+}
+
+function RepositoryRow({ repository, query }: { repository: any; query: Record<string, string | undefined> }) {
+  const folderMap = new Map<number, any>();
+  for (const folder of repository.folders || []) {
+    folderMap.set(folder.id, folder);
+  }
+
+  return (
+    <>
+      <tr className="hover:bg-slate-50/70 transition-colors">
+        <td className="px-4 py-3 font-bold text-slate-900">{repository.name}</td>
+        <td className="px-4 py-3 text-slate-600">{repository.slug}</td>
+        <td className="max-w-[360px] px-4 py-3 text-slate-600 truncate">{repository.description || "-"}</td>
+        <td className="px-4 py-3 text-slate-600">L{repository.min_clearance_level}</td>
+        <td className="px-4 py-3 text-slate-600">{repository.folder_count}</td>
+        <td className="px-4 py-3 text-slate-600">{repository.note_count}</td>
+        <td className="px-4 py-3">
+          <div className="flex items-center justify-end gap-2">
+            <Link
+              href={`/admin/repositories${buildAdminQuery(query, {
+                modal: "edit",
+                repository_id: repository.id,
+              })}`}
+            >
+              <AdminSecondaryButton className="h-9 gap-1 px-3">
+                <Edit3 className="h-3.5 w-3.5" />
+                编辑
+              </AdminSecondaryButton>
+            </Link>
+            <form action={deleteRepositoryAction}>
+              <input name="repository_id" type="hidden" value={repository.id} />
+              <input name="return_path" type="hidden" value="/admin/repositories" />
+              <AdminDangerButton className="gap-1" type="submit">
+                <Trash2 className="h-3.5 w-3.5" />
+                删除
+              </AdminDangerButton>
+            </form>
+          </div>
+        </td>
+      </tr>
+      <tr className="bg-slate-50/40">
+        <td className="px-4 py-4 text-sm text-slate-600" colSpan={7}>
+          <div className="space-y-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400">目录删除</div>
+            {repository.folders.length === 0 ? (
+              <div className="text-sm text-slate-400">当前仓库暂无目录。</div>
+            ) : (
+              <div className="space-y-2">
+                {repository.folders.map((folder: any) => {
+                  const parent = folder.parent_id ? folderMap.get(folder.parent_id) : null;
+                  return (
+                    <div
+                      key={folder.id}
+                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-800">{folder.name}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          ID #{folder.id} · L{folder.clearance_level} · {folder.note_count} 篇笔记
+                          {parent ? ` · 上级目录：${parent.name}` : " · 根目录"}
+                        </div>
+                      </div>
+                      <form action={deleteFolderAction}>
+                        <input name="folder_id" type="hidden" value={folder.id} />
+                        <input name="return_path" type="hidden" value="/admin/repositories" />
+                        <AdminDangerButton className="gap-1" type="submit">
+                          <Trash2 className="h-3.5 w-3.5" />
+                          删除目录
+                        </AdminDangerButton>
+                      </form>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    </>
   );
 }
 

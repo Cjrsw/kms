@@ -129,6 +129,7 @@ def login_with_database_user(db: Session, username: str, password: str, request:
         position=user.position,
         gender=user.gender,
         bio=user.bio,
+        has_avatar_upload=bool(user.avatar_object_key),
         need_password_change=user.need_password_change,
     )
     record_auth_audit(db, event_type="login", status="success", request=request, user=user, detail="login_success")
@@ -149,5 +150,6 @@ def serialize_current_user(user: User) -> CurrentUserResponse:
         position=user.position,
         gender=user.gender,
         bio=user.bio,
+        has_avatar_upload=bool(user.avatar_object_key),
         need_password_change=user.need_password_change,
     )

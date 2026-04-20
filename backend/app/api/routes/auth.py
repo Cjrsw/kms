@@ -1,29 +1,41 @@
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.deps import get_current_user
 from app.core.security import get_password_hash, is_password_complex, verify_password
 from app.db.session import get_db
+from app.models.content import Note, NoteFavorite, Repository
 from app.models.user import User
 from app.schemas.ai import UserModelPreferenceResponse, UserModelPreferenceUpdateRequest
 from app.schemas.auth import (
     ChangePasswordRequest,
     CurrentUserResponse,
+    FavoriteNoteItem,
+    FavoriteNotesResponse,
     LoginRequest,
     TokenResponse,
     UpdateProfileRequest,
 )
 from app.services.auth import login_with_database_user, serialize_current_user
 from app.services.audit import record_auth_audit
+from app.services.storage import (
+    build_user_avatar_object_key,
+    get_object_bytes,
+    remove_object,
+    upload_attachment_bytes,
+)
 from app.services.token_revocation import parse_jwt_exp, revoke_token_jti
 
 router = APIRouter()
 optional_bearer = HTTPBearer(auto_error=False)
+ALLOWED_AVATAR_TYPES = {"png", "jpg", "jpeg", "webp"}
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -47,6 +59,118 @@ def login(payload: LoginRequest, request: Request, db: Annotated[Session, Depend
 @router.get("/me", response_model=CurrentUserResponse)
 def current_user(user: Annotated[User, Depends(get_current_user)]) -> CurrentUserResponse:
     return serialize_current_user(user)
+
+
+@router.get("/me/avatar")
+def get_my_avatar(user: Annotated[User, Depends(get_current_user)]) -> Response:
+    if not user.avatar_object_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found.")
+
+    object_bytes = get_object_bytes(user.avatar_object_key)
+    if object_bytes is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found in storage.")
+
+    return Response(
+        content=object_bytes,
+        media_type=_resolve_avatar_media_type(user.avatar_object_key),
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@router.put("/me/avatar", response_model=CurrentUserResponse)
+async def update_my_avatar(
+    file: Annotated[UploadFile, File(...)],
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CurrentUserResponse:
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Avatar file name is required.")
+
+    file_extension = Path(file.filename).suffix.lower().lstrip(".")
+    if file_extension not in ALLOWED_AVATAR_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Avatar only supports PNG, JPG, JPEG and WEBP.",
+        )
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty avatar is not allowed.")
+    if len(file_bytes) > MAX_AVATAR_SIZE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Avatar exceeds the 5MB limit.")
+
+    old_object_key = user.avatar_object_key
+    new_object_key = build_user_avatar_object_key(user.id, file.filename)
+    upload_attachment_bytes(
+        object_key=new_object_key,
+        data=file_bytes,
+        content_type=file.content_type or _resolve_avatar_upload_media_type(file_extension),
+    )
+
+    user.avatar_object_key = new_object_key
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    if old_object_key:
+        remove_object(old_object_key)
+
+    record_auth_audit(db, event_type="profile_update", status="success", request=request, user=user, detail="self_avatar_updated")
+    return serialize_current_user(user)
+
+
+@router.delete("/me/avatar", response_model=CurrentUserResponse)
+def delete_my_avatar(
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> CurrentUserResponse:
+    old_object_key = user.avatar_object_key
+    user.avatar_object_key = None
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    if old_object_key:
+        remove_object(old_object_key)
+
+    record_auth_audit(db, event_type="profile_update", status="success", request=request, user=user, detail="self_avatar_deleted")
+    return serialize_current_user(user)
+
+
+@router.get("/me/favorites", response_model=FavoriteNotesResponse)
+def get_my_favorites(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> FavoriteNotesResponse:
+    favorites = (
+        db.query(NoteFavorite)
+        .options(
+            selectinload(NoteFavorite.note).selectinload(Note.repository),
+        )
+        .filter(NoteFavorite.user_id == user.id)
+        .join(Note, NoteFavorite.note_id == Note.id)
+        .filter(Note.min_clearance_level <= user.clearance_level)
+        .order_by(NoteFavorite.created_at.desc(), NoteFavorite.id.desc())
+        .all()
+    )
+
+    items = [
+        FavoriteNoteItem(
+            note_id=favorite.note.id,
+            repository_slug=favorite.note.repository.slug,
+            repository_name=favorite.note.repository.name,
+            title=favorite.note.title,
+            author_name=(favorite.note.author_name or "").strip() or "系统",
+            clearance_level=favorite.note.min_clearance_level,
+            updated_at=favorite.note.updated_at.isoformat(),
+            href=f"/repositories/{favorite.note.repository.slug}/notes/{favorite.note.id}",
+        )
+        for favorite in favorites
+        if favorite.note is not None and favorite.note.repository is not None
+    ]
+    return FavoriteNotesResponse(total=len(items), items=items)
 
 
 @router.get("/me/model-preference", response_model=UserModelPreferenceResponse)
@@ -189,3 +313,24 @@ def logout(
         )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _resolve_avatar_media_type(object_key: str) -> str:
+    suffix = Path(object_key).suffix.lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _resolve_avatar_upload_media_type(file_type: str) -> str:
+    if file_type == "png":
+        return "image/png"
+    if file_type in {"jpg", "jpeg"}:
+        return "image/jpeg"
+    if file_type == "webp":
+        return "image/webp"
+    return "application/octet-stream"

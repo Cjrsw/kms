@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { changeMyPassword, updateMyProfile } from "../../lib/api";
+import { changeMyPassword, deleteMyAvatar, updateMyProfile, uploadMyAvatar } from "../../lib/api";
 
 function parseOptionalString(formData: FormData, key: string): string | null {
   const value = String(formData.get(key) ?? "").trim();
@@ -18,8 +18,16 @@ export async function updateProfileAction(formData: FormData) {
     gender: parseOptionalString(formData, "gender"),
     bio: parseOptionalString(formData, "bio"),
   });
+  const avatarFile = formData.get("avatar");
+  const clearAvatar = String(formData.get("clear_avatar") ?? "").trim() === "on";
+  if (avatarFile instanceof File && avatarFile.size > 0) {
+    await uploadMyAvatar(avatarFile);
+  } else if (clearAvatar) {
+    await deleteMyAvatar();
+  }
   revalidatePath("/profile");
-  redirect("/profile?saved=1");
+  revalidatePath("/profile/edit");
+  redirect("/profile/edit?saved=1");
 }
 
 export async function changePasswordAction(formData: FormData) {
@@ -37,5 +45,6 @@ export async function changePasswordAction(formData: FormData) {
     new_password: newPassword,
   });
   revalidatePath("/profile");
+  revalidatePath("/profile/password");
   redirect("/logout");
 }
