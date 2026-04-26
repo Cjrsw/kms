@@ -55,61 +55,46 @@ def invoke_chat_completion(
             )
         )
 
-    payload = _build_chat_payload(
-        question=question,
-        context_sections=context_sections,
-        system_prompt=system_prompt,
-        stream=False,
-    )
-    endpoint = _resolve_endpoint(settings.qa_chat_base_url, "chat/completions")
-    headers = _build_headers(settings.qa_chat_api_key)
-    try:
-        with httpx.Client(timeout=settings.qa_chat_timeout_seconds) as client:
-            response = client.post(endpoint, headers=headers, json=payload)
-        if response.status_code >= 400:
-            raise ModelInvocationError(_map_http_error_to_failure(response))
-        body = response.json()
-        choices = body.get("choices") or []
-        for choice in choices:
-            message = choice.get("message") or {}
-            content = message.get("content")
-            if isinstance(content, str) and content.strip():
-                return content.strip()
+    payload = _build_chat_payload(question=question, context_sections=context_sections, system_prompt=system_prompt, stream=False)
+    return _invoke_chat_payload(payload=payload, trace_id=trace_id)
+
+
+def invoke_title_completion(
+    *,
+    first_question: str,
+    trace_id: str,
+) -> str:
+    if not is_chat_configured():
         raise ModelInvocationError(
             StructuredFailure(
-                error_code="empty_model_response",
-                error_category="upstream",
-                user_message="Model returned an empty response.",
-                hint="Check whether the upstream model supports OpenAI-compatible chat/completions response shape.",
+                error_code="chat_model_not_configured",
+                error_category="configuration",
+                user_message="Chat model is not configured.",
+                hint="Set QA_CHAT_BASE_URL and QA_CHAT_MODEL_NAME in environment variables.",
             )
         )
-    except httpx.ConnectError as exc:
-        raise ModelInvocationError(
-            StructuredFailure(
-                error_code="network_unreachable",
-                error_category="network",
-                user_message="Model service network is unreachable.",
-                hint=f"trace_id={trace_id}; check QA_CHAT_BASE_URL and network connectivity.",
-            )
-        ) from exc
-    except httpx.TimeoutException as exc:
-        raise ModelInvocationError(
-            StructuredFailure(
-                error_code="model_timeout",
-                error_category="timeout",
-                user_message="Model invocation timed out.",
-                hint=f"trace_id={trace_id}; increase QA_CHAT_TIMEOUT_SECONDS or check upstream latency.",
-            )
-        ) from exc
-    except json.JSONDecodeError as exc:
-        raise ModelInvocationError(
-            StructuredFailure(
-                error_code="invalid_model_response",
-                error_category="upstream",
-                user_message="Model response is not valid JSON.",
-                hint=f"trace_id={trace_id}; verify OpenAI-compatible API behavior.",
-            )
-        ) from exc
+
+    payload: dict[str, Any] = {
+        "model": settings.qa_chat_model_name.strip(),
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你负责为问答会话生成一个简短中文标题。"
+                    "只输出标题本身，不要解释，不要引号，不要编号，不要句号。"
+                    "标题长度控制在8到18个中文字符，尽量保留主题关键词。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"请根据这条首问生成会话标题：{first_question}",
+            },
+        ],
+        "temperature": 0.2,
+        "stream": False,
+        "max_tokens": 24,
+    }
+    return _invoke_chat_payload(payload=payload, trace_id=trace_id)
 
 
 async def stream_chat_completion(
@@ -262,6 +247,58 @@ def _build_chat_payload(
     if settings.qa_chat_max_tokens is not None and settings.qa_chat_max_tokens > 0:
         payload["max_tokens"] = settings.qa_chat_max_tokens
     return payload
+
+
+def _invoke_chat_payload(*, payload: dict[str, Any], trace_id: str) -> str:
+    endpoint = _resolve_endpoint(settings.qa_chat_base_url, "chat/completions")
+    headers = _build_headers(settings.qa_chat_api_key)
+    try:
+        with httpx.Client(timeout=settings.qa_chat_timeout_seconds) as client:
+            response = client.post(endpoint, headers=headers, json=payload)
+        if response.status_code >= 400:
+            raise ModelInvocationError(_map_http_error_to_failure(response))
+        body = response.json()
+        choices = body.get("choices") or []
+        for choice in choices:
+            message = choice.get("message") or {}
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        raise ModelInvocationError(
+            StructuredFailure(
+                error_code="empty_model_response",
+                error_category="upstream",
+                user_message="Model returned an empty response.",
+                hint="Check whether the upstream model supports OpenAI-compatible chat/completions response shape.",
+            )
+        )
+    except httpx.ConnectError as exc:
+        raise ModelInvocationError(
+            StructuredFailure(
+                error_code="network_unreachable",
+                error_category="network",
+                user_message="Model service network is unreachable.",
+                hint=f"trace_id={trace_id}; check QA_CHAT_BASE_URL and network connectivity.",
+            )
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise ModelInvocationError(
+            StructuredFailure(
+                error_code="model_timeout",
+                error_category="timeout",
+                user_message="Model invocation timed out.",
+                hint=f"trace_id={trace_id}; increase QA_CHAT_TIMEOUT_SECONDS or check upstream latency.",
+            )
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ModelInvocationError(
+            StructuredFailure(
+                error_code="invalid_model_response",
+                error_category="upstream",
+                user_message="Model response is not valid JSON.",
+                hint=f"trace_id={trace_id}; verify OpenAI-compatible API behavior.",
+            )
+        ) from exc
 
 
 def _extract_stream_content(chunk_obj: dict[str, Any]) -> str:

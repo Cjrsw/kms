@@ -11,6 +11,7 @@ from app.models.content import (
     NoteLike,
     Repository,
 )
+from app.models.qa_history import QaConversation, QaMessage
 from app.models.system import SystemSetting
 from app.models.user import AuthAuditLog, Department, RevokedToken, Role, User, UserRole
 
@@ -27,7 +28,9 @@ __all__ = [
     "NoteComment",
     "NoteFavorite",
     "NoteLike",
+    "QaConversation",
     "QaAuditLog",
+    "QaMessage",
     "Repository",
     "RevokedToken",
     "Role",

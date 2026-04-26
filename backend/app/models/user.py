@@ -61,6 +61,8 @@ class User(Base):
         cascade="all, delete-orphan",
     )
     qa_audit_logs: Mapped[list["QaAuditLog"]] = relationship(back_populates="user")
+    qa_conversations: Mapped[list["QaConversation"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    qa_messages: Mapped[list["QaMessage"]] = relationship(back_populates="user")
     authored_notes: Mapped[list["Note"]] = relationship(back_populates="author")
     note_likes: Mapped[list["NoteLike"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     note_favorites: Mapped[list["NoteFavorite"]] = relationship(back_populates="user", cascade="all, delete-orphan")

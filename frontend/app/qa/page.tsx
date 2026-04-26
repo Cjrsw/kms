@@ -8,7 +8,7 @@ export default async function QaPage() {
 
   return (
     <AppShell
-      contentClassName="p-6 lg:p-8 bg-slate-50"
+      contentClassName="p-0 bg-[#212121]"
       currentUser={currentUser}
       title="Knowledge QA"
       description="Streaming answer generation with strict failure diagnostics."

@@ -5,7 +5,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-3300}:3000"
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:9002/api/v1
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:19002/api/v1
       KMS_API_BASE_URL: http://backend:8000/api/v1
       KMS_AUTH_COOKIE_SECURE: "false"
     depends_on:
@@ -15,7 +15,7 @@ services:
     build:
       context: ./backend
     ports:
-      - "9002:8000"
+      - "19002:8000"
     env_file:
       - .env
     depends_on:
@@ -74,7 +74,7 @@ services:
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
-      - "9200:9200"
+      - "19200:9200"
     volumes:
       - ./es-data:/usr/share/elasticsearch/data
 
@@ -113,7 +113,7 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19000:9000"
+      - "19001:9001"
     volumes:
       - ./minio-data:/data

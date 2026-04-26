@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -8,8 +8,9 @@ from app.core.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.ai import QaAvailableModelsResponse
-from app.schemas.qa import QaAskRequest, QaResponseEnvelope
+from app.schemas.qa import QaAskRequest, QaConversationDetail, QaConversationListResponse, QaResponseEnvelope
 from app.services.qa import answer_question, stream_answer_question
+from app.services.qa_history import delete_conversation, get_user_conversation, list_user_conversations, serialize_conversation_detail
 from app.services.runtime_llm import get_chat_model_name
 
 router = APIRouter()
@@ -48,6 +49,7 @@ def qa_post(
         question=payload.question,
         repository_slug=(payload.repository_slug or "").strip() or None,
         model_id=payload.model_id,
+        conversation_id=payload.conversation_id,
     )
 
 
@@ -63,6 +65,7 @@ async def qa_stream(
         question=payload.question,
         repository_slug=(payload.repository_slug or "").strip() or None,
         model_id=payload.model_id,
+        conversation_id=payload.conversation_id,
     )
     return StreamingResponse(
         generator,
@@ -88,3 +91,35 @@ def qa_get_compat(
         repository_slug=(repository_slug or "").strip() or None,
         model_id=model_id,
     )
+
+
+@router.get("/conversations", response_model=QaConversationListResponse)
+def qa_conversations(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> QaConversationListResponse:
+    return list_user_conversations(db, user=user)
+
+
+@router.get("/conversations/{conversation_id}", response_model=QaConversationDetail)
+def qa_conversation_detail(
+    conversation_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> QaConversationDetail:
+    conversation = get_user_conversation(db, user=user, conversation_id=conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    return serialize_conversation_detail(conversation)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def qa_conversation_delete(
+    conversation_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    conversation = get_user_conversation(db, user=user, conversation_id=conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    delete_conversation(db, conversation=conversation)

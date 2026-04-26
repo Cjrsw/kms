@@ -156,6 +156,8 @@ export type QaSourceItem = {
 };
 
 export type QaAnswer = {
+  conversation_id: number | null;
+  conversation_title: string | null;
   model_id: number | null;
   model_name: string;
   recall_mode: string;
@@ -173,12 +175,48 @@ export type QaFailure = {
   user_message: string;
   hint: string;
   trace_id: string;
+  conversation_id: number | null;
+  conversation_title: string | null;
 };
 
 export type QaResponseEnvelope = {
   status: "ok" | "failed";
   data: QaAnswer | null;
   error: QaFailure | null;
+};
+
+export type QaConversationMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  status: "success" | "failed";
+  error_code: string;
+  error_category: string;
+  trace_id: string;
+  model_name: string;
+  citation_status: "ok" | "partial" | "missing" | "";
+  source_count: number;
+  sources: QaSourceItem[];
+  created_at: string;
+};
+
+export type QaConversationSummary = {
+  id: number;
+  title: string;
+  repository_slug: string | null;
+  last_question: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QaConversationListResponse = {
+  total: number;
+  items: QaConversationSummary[];
+};
+
+export type QaConversationDetail = QaConversationSummary & {
+  messages: QaConversationMessage[];
 };
 
 export type QaModelOption = {

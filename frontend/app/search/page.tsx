@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, FileText, Filter, Search, User, FolderArchiv
 
 import { AuthorAutocompleteInput } from "../../components/author-autocomplete-input";
 import { AppShell } from "../../components/app-shell";
+import { SearchQueryBar } from "../../components/search-query-bar";
 import {
   getRepositories,
   getSearchAuthorSuggestions,
@@ -112,31 +113,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <div className="flex h-full flex-col bg-slate-50">
         <form className="flex h-full flex-col overflow-hidden" method="get">
           <div className="z-10 flex h-24 flex-shrink-0 items-center border-b border-slate-200/60 bg-white/80 px-4 backdrop-blur-md lg:px-8">
-            <div className="relative mx-auto w-full max-w-5xl">
-              <Search className="absolute left-5 top-1/2 h-6 w-6 -translate-y-1/2 text-indigo-500" />
-              <input
-                className="h-14 w-full rounded-2xl border-none bg-white py-0 pl-14 pr-28 text-lg font-medium text-slate-800 shadow-soft outline-none transition-all placeholder:font-normal placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:shadow-floating"
-                defaultValue={normalizedQuery}
-                list={suggestions.length > 0 ? "search-suggest-list" : undefined}
-                name="q"
-                placeholder="搜索笔记标题、正文、PDF/DOCX 等文档..."
-                type="text"
-              />
-              <input name="page" type="hidden" value="1" />
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-indigo-600 px-6 py-2 text-sm font-bold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-md active:scale-95"
-                type="submit"
-              >
-                搜索
-              </button>
-              {suggestions.length > 0 && (
-                <datalist id="search-suggest-list">
-                  {suggestions.map((item) => (
-                    <option key={item} value={item} />
-                  ))}
-                </datalist>
-              )}
-            </div>
+            <SearchQueryBar currentQuery={normalizedQuery} suggestions={suggestions} />
           </div>
 
           <div className="flex flex-1 overflow-hidden">
