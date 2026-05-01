@@ -110,7 +110,7 @@ def qa_conversation_detail(
     conversation = get_user_conversation(db, user=user, conversation_id=conversation_id)
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
-    return serialize_conversation_detail(conversation)
+    return serialize_conversation_detail(db, conversation=conversation, user=user)
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -4,6 +4,7 @@ import json
 
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.content import Note, Repository
 from app.models.qa_history import QaConversation, QaMessage
 from app.models.user import User
 from app.schemas.qa import (
@@ -37,10 +38,10 @@ def get_user_conversation(db: Session, *, user: User, conversation_id: int) -> Q
     )
 
 
-def serialize_conversation_detail(conversation: QaConversation) -> QaConversationDetail:
+def serialize_conversation_detail(db: Session, *, conversation: QaConversation, user: User) -> QaConversationDetail:
     return QaConversationDetail(
         **_serialize_conversation_summary(conversation).model_dump(),
-        messages=[_serialize_message(message) for message in conversation.messages],
+        messages=[_serialize_message(db, message=message, user=user) for message in conversation.messages],
     )
 
 
@@ -161,7 +162,8 @@ def _serialize_conversation_summary(conversation: QaConversation) -> QaConversat
     )
 
 
-def _serialize_message(message: QaMessage) -> QaConversationMessageItem:
+def _serialize_message(db: Session, *, message: QaMessage, user: User) -> QaConversationMessageItem:
+    sources = _filter_existing_sources(db=db, user=user, sources=_parse_sources(message.sources_json))
     return QaConversationMessageItem(
         id=message.id,
         role=message.role,
@@ -172,8 +174,8 @@ def _serialize_message(message: QaMessage) -> QaConversationMessageItem:
         trace_id=message.trace_id or "",
         model_name=message.model_name or "",
         citation_status=message.citation_status or "",
-        source_count=message.source_count or 0,
-        sources=_parse_sources(message.sources_json),
+        source_count=len(sources),
+        sources=sources,
         created_at=message.created_at.isoformat(),
     )
 
@@ -196,6 +198,44 @@ def _parse_sources(raw_sources: str) -> list[QaSourceItem]:
         except Exception:
             continue
     return items
+
+
+def _filter_existing_sources(db: Session, *, user: User, sources: list[QaSourceItem]) -> list[QaSourceItem]:
+    note_ids = sorted({source.note_id for source in sources if source.note_id > 0})
+    if not note_ids:
+        return []
+    notes = (
+        db.query(Note)
+        .join(Repository, Repository.id == Note.repository_id)
+        .options(selectinload(Note.repository), selectinload(Note.attachments))
+        .filter(
+            Note.id.in_(note_ids),
+            Note.min_clearance_level <= user.clearance_level,
+            Repository.min_clearance_level <= user.clearance_level,
+        )
+        .all()
+    )
+    notes_by_id = {note.id: note for note in notes if note.repository is not None}
+    filtered: list[QaSourceItem] = []
+    for source in sources:
+        note = notes_by_id.get(source.note_id)
+        if note is None or note.repository is None:
+            continue
+        filtered.append(
+            QaSourceItem(
+                note_id=note.id,
+                repository_slug=note.repository.slug,
+                repository_name=note.repository.name,
+                title=note.title,
+                snippet=source.snippet,
+                clearance_level=note.min_clearance_level,
+                attachment_count=len(note.attachments),
+                score=source.score,
+                updated_at=note.updated_at.isoformat(),
+                hit_mode=source.hit_mode,
+            )
+        )
+    return filtered
 
 
 def _truncate_inline(value: str, limit: int) -> str:

@@ -19,6 +19,8 @@ from app.schemas.auth import (
     FavoriteNoteItem,
     FavoriteNotesResponse,
     LoginRequest,
+    MyNoteItem,
+    MyNotesResponse,
     TokenResponse,
     UpdateProfileRequest,
 )
@@ -36,6 +38,7 @@ router = APIRouter()
 optional_bearer = HTTPBearer(auto_error=False)
 ALLOWED_AVATAR_TYPES = {"png", "jpg", "jpeg", "webp"}
 MAX_AVATAR_SIZE = 5 * 1024 * 1024
+SESSION_COOKIE_NAME = "kms_access_token"
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -54,6 +57,48 @@ def login(payload: LoginRequest, request: Request, db: Annotated[Session, Depend
         )
 
     return result.token
+
+
+@router.post("/session-login", response_model=TokenResponse)
+def session_login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> TokenResponse:
+    result = login_with_database_user(db, payload.username, payload.password, request)
+    if result.token is None:
+        response_status = status.HTTP_423_LOCKED if result.error_code == "locked" else status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(
+            status_code=response_status,
+            detail={
+                "code": result.error_code or "invalid",
+                "message": result.detail or "Invalid username or password.",
+                "remaining_attempts": result.remaining_attempts,
+                "locked_until": result.locked_until,
+            },
+        )
+
+    settings = get_settings()
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        result.token.access_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        path="/",
+        max_age=settings.access_token_expire_minutes * 60,
+    )
+    return result.token
+
+
+@router.post("/session-logout", status_code=status.HTTP_204_NO_CONTENT)
+def session_logout(request: Request, response: Response, db: Annotated[Session, Depends(get_db)]) -> Response:
+    token = request.cookies.get(SESSION_COOKIE_NAME, "")
+    _revoke_token_if_possible(request=request, db=db, token=token)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/", samesite="lax")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/me", response_model=CurrentUserResponse)
@@ -173,6 +218,37 @@ def get_my_favorites(
     return FavoriteNotesResponse(total=len(items), items=items)
 
 
+@router.get("/me/notes", response_model=MyNotesResponse)
+def get_my_notes(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> MyNotesResponse:
+    notes = (
+        db.query(Note)
+        .options(selectinload(Note.repository))
+        .filter(Note.author_user_id == user.id)
+        .filter(Note.min_clearance_level <= user.clearance_level)
+        .order_by(Note.updated_at.desc(), Note.id.desc())
+        .all()
+    )
+
+    items = [
+        MyNoteItem(
+            note_id=note.id,
+            repository_slug=note.repository.slug,
+            repository_name=note.repository.name,
+            title=note.title,
+            content_text=(note.content_text or "").strip(),
+            clearance_level=note.min_clearance_level,
+            updated_at=note.updated_at.isoformat(),
+            href=f"/repositories/{note.repository.slug}/notes/{note.id}",
+        )
+        for note in notes
+        if note.repository is not None
+    ]
+    return MyNotesResponse(total=len(items), items=items)
+
+
 @router.get("/me/model-preference", response_model=UserModelPreferenceResponse)
 def get_my_model_preference(
     user: Annotated[User, Depends(get_current_user)],
@@ -267,17 +343,26 @@ def logout(
     if credentials is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    _revoke_token_if_possible(request=request, db=db, token=credentials.credentials)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _revoke_token_if_possible(*, request: Request, db: Session, token: str) -> None:
+    if not token:
+        return
+
     settings = get_settings()
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             settings.secret_key,
             algorithms=["HS256"],
             options={"verify_exp": False},
         )
     except JWTError:
         record_auth_audit(db, event_type="logout", status="failed", request=request, detail="invalid_jwt")
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        return
 
     username = str(payload.get("sub") or "").strip()
     jti = str(payload.get("jti") or "").strip()
@@ -311,8 +396,6 @@ def logout(
             username=username or None,
             detail="missing_jti",
         )
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _resolve_avatar_media_type(object_key: str) -> str:

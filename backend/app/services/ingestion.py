@@ -10,13 +10,25 @@ from sqlalchemy.orm import Session
 from app.models.content import Attachment, AttachmentContent
 
 
+class AttachmentExtractionError(Exception):
+    """Raised when an attachment cannot be parsed at all."""
+
+
 def extract_attachment_text(file_name: str, file_bytes: bytes) -> str:
+    text, _ = extract_attachment_text_with_error(file_name, file_bytes)
+    return text
+
+
+def extract_attachment_text_with_error(file_name: str, file_bytes: bytes) -> tuple[str, str | None]:
     suffix = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
-    if suffix == "pdf":
-        return _extract_pdf_text(file_bytes)
-    if suffix == "docx":
-        return _extract_docx_text(file_bytes)
-    return ""
+    try:
+        if suffix == "pdf":
+            return _extract_pdf_text(file_bytes), None
+        if suffix == "docx":
+            return _extract_docx_text(file_bytes), None
+    except AttachmentExtractionError as exc:
+        return "", str(exc)
+    return "", None
 
 
 def upsert_attachment_text(
@@ -43,8 +55,8 @@ def upsert_attachment_text(
 def _extract_pdf_text(file_bytes: bytes) -> str:
     try:
         reader = PdfReader(BytesIO(file_bytes))
-    except Exception:  # noqa: BLE001
-        return ""
+    except Exception as exc:  # noqa: BLE001
+        raise AttachmentExtractionError("PDF 文件无法解析，可能已损坏或格式不受支持。") from exc
 
     page_texts: list[str] = []
     for page in reader.pages:
@@ -62,10 +74,10 @@ def _extract_pdf_text(file_bytes: bytes) -> str:
 def _extract_docx_text(file_bytes: bytes) -> str:
     try:
         document = Document(BytesIO(file_bytes))
-    except BadZipFile:
-        return ""
-    except Exception:  # noqa: BLE001
-        return ""
+    except BadZipFile as exc:
+        raise AttachmentExtractionError("DOCX 文件无法解析，可能已损坏或不是有效的 DOCX。") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise AttachmentExtractionError("DOCX 文件无法解析，可能已损坏或格式不受支持。") from exc
 
     # Preserve paragraph boundaries so downstream chunking can distinguish sections.
     paragraph_text = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]

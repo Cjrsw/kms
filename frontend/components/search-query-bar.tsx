@@ -1,6 +1,5 @@
 "use client";
 
-import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const SEARCH_HISTORY_KEY = "kms_search_history_v1";
@@ -95,26 +94,27 @@ export function SearchQueryBar({ currentQuery, suggestions }: SearchQueryBarProp
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      <div className="relative">
-        <Search className="absolute left-5 top-1/2 h-6 w-6 -translate-y-1/2 text-indigo-500" />
+    <div className="kms-search-query-module">
+      <div className="kms-search-box">
         <input
           ref={inputRef}
-          className="h-14 w-full rounded-2xl border-none bg-white py-0 pl-14 pr-28 text-lg font-medium text-slate-800 shadow-soft outline-none transition-all placeholder:font-normal placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:shadow-floating"
+          className="kms-search-input"
           list={datalistId}
           name="q"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索笔记标题、正文、PDF/DOCX 等文档..."
+          placeholder="输入关键字进行全库检索..."
           type="text"
           value={query}
         />
         <input name="page" type="hidden" value="1" />
         <button
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl bg-indigo-600 px-6 py-2 text-sm font-bold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-md active:scale-95"
+          className="kms-search-btn"
           type="submit"
         >
-          搜索
+          <span className="btn-text">检索</span>
+          <span className="btn-icon">///</span>
         </button>
+        <div className="kms-search-energy-line" />
         {datalistId ? (
           <datalist id={datalistId}>
             {suggestions.map((item) => (
@@ -125,14 +125,14 @@ export function SearchQueryBar({ currentQuery, suggestions }: SearchQueryBarProp
       </div>
 
       {history.length > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 px-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">最近搜索</span>
+        <div className="kms-search-history-chips">
+          <span>RECENT</span>
           {history.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => submitHistoryQuery(item)}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+              className="kms-search-history-chip"
             >
               {item}
             </button>

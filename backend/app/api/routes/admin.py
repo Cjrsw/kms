@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -27,6 +28,8 @@ from app.schemas.ai import (
 from app.schemas.admin import (
     AdminContentResponse,
     AdminFolderItem,
+    HomeAnnouncementResponse,
+    HomeAnnouncementUpdateRequest,
     AdminNoteItem,
     AdminRepositoryItem,
     AdminRepositoriesResponse,
@@ -43,6 +46,8 @@ from app.schemas.admin import (
     DepartmentUpdateRequest,
     FolderCreateRequest,
     FolderUpdateRequest,
+    HomeCarouselResponse,
+    HomeCarouselSlideItem,
     NoteCreateRequest,
     NoteUpdateRequest,
     RepositoryCreateRequest,
@@ -51,22 +56,29 @@ from app.schemas.admin import (
     UserCreateRequest,
     UserUpdateRequest,
 )
-from app.services.search import delete_note_documents, index_note
+from app.services.note_indexing import enqueue_note_index
+from app.services.search import index_note
+from app.services.markdown import resolve_note_body
 from app.services.content_cleanup import (
     cleanup_deleted_note_resources,
     collect_descendant_folder_ids,
     collect_note_cleanup_payload,
 )
-from app.services.storage import build_repository_cover_object_key, remove_object, upload_attachment_bytes
+from app.services.storage import build_home_carousel_object_key, build_repository_cover_object_key, remove_object, upload_attachment_bytes
 from app.services.system_settings import (
     get_cors_origins_setting,
+    get_home_announcement_setting,
+    get_home_carousel_slides_setting,
     get_qa_system_prompt_setting,
     set_cors_origins_setting,
+    set_home_announcement_setting,
+    set_home_carousel_slides_setting,
     set_qa_system_prompt_setting,
 )
 
 router = APIRouter()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 ADMIN_ROLE_CODE = "admin"
 EMPLOYEE_ROLE_CODE = "employee"
 ADMIN_DEPENDENCY = Depends(require_role(ADMIN_ROLE_CODE))
@@ -119,10 +131,14 @@ def get_admin_content(
                     repository_id=note.repository_id,
                     folder_id=note.folder_id,
                     title=note.title,
+                    content_markdown=note.content_markdown or "",
                     content_text=note.content_text,
                     clearance_level=note.min_clearance_level,
                     updated_at=note.updated_at.isoformat(),
                     attachment_count=len(note.attachments),
+                    search_index_status=note.search_index_status or "indexed",
+                    search_index_error=note.search_index_error or None,
+                    search_indexed_at=note.search_indexed_at.isoformat() if note.search_indexed_at else None,
                 )
                 for note in sorted(repository.notes, key=lambda item: item.updated_at, reverse=True)
             ],
@@ -135,6 +151,109 @@ def get_admin_content(
         folder_count=sum(len(repository.folders) for repository in repositories),
         note_count=sum(len(repository.notes) for repository in repositories),
         repositories=serialized_repositories,
+    )
+
+
+@router.get("/home-carousel", response_model=HomeCarouselResponse)
+def get_admin_home_carousel(
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> HomeCarouselResponse:
+    slides, updated_at = get_home_carousel_slides_setting(db)
+    return HomeCarouselResponse(
+        slides=[_serialize_home_carousel_slide(slide) for slide in slides],
+        updated_at=updated_at.isoformat() if updated_at else None,
+    )
+
+
+@router.get("/home-announcement", response_model=HomeAnnouncementResponse)
+def get_admin_home_announcement(
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> HomeAnnouncementResponse:
+    announcement, updated_at = get_home_announcement_setting(db)
+    return HomeAnnouncementResponse(
+        title=announcement["title"],
+        content=announcement["content"],
+        updated_at=updated_at.isoformat() if updated_at else None,
+    )
+
+
+@router.put("/home-announcement", response_model=HomeAnnouncementResponse)
+def update_admin_home_announcement(
+    payload: HomeAnnouncementUpdateRequest,
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> HomeAnnouncementResponse:
+    announcement, updated_at = set_home_announcement_setting(
+        db,
+        title=payload.title,
+        content=payload.content,
+    )
+    return HomeAnnouncementResponse(
+        title=announcement["title"],
+        content=announcement["content"],
+        updated_at=updated_at.isoformat(),
+    )
+
+
+@router.put("/home-carousel/{slide_index}", response_model=HomeCarouselResponse)
+async def update_admin_home_carousel_slide(
+    slide_index: int,
+    _: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+    title: str = Form(...),
+    subtitle: str = Form(...),
+    clear_image: bool = Form(False),
+    image: UploadFile | None = File(None),
+) -> HomeCarouselResponse:
+    if slide_index < 1 or slide_index > 3:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Home carousel slide not found.")
+
+    slides, _ = get_home_carousel_slides_setting(db)
+    target = next((slide for slide in slides if int(slide["index"]) == slide_index), None)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Home carousel slide not found.")
+
+    old_object_key = str(target.get("image_object_key") or "")
+    next_object_key = old_object_key
+
+    if image is not None and image.filename:
+        file_extension = Path(image.filename).suffix.lower().lstrip(".")
+        if file_extension not in ALLOWED_REPOSITORY_COVER_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Home carousel image only supports PNG, JPG, JPEG and WEBP.",
+            )
+        file_bytes = await image.read()
+        if not file_bytes:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty home carousel image is not allowed.")
+        if len(file_bytes) > MAX_REPOSITORY_COVER_SIZE:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Home carousel image exceeds the 10MB limit.")
+
+        next_object_key = build_home_carousel_object_key(slide_index, image.filename)
+        upload_attachment_bytes(
+            object_key=next_object_key,
+            data=file_bytes,
+            content_type=image.content_type or _resolve_repository_cover_media_type(file_extension),
+        )
+    elif clear_image:
+        next_object_key = ""
+
+    for slide in slides:
+        if int(slide["index"]) == slide_index:
+            slide["title"] = title.strip() or str(slide.get("title") or "")
+            slide["subtitle"] = subtitle.strip() or str(slide.get("subtitle") or "")
+            slide["image_object_key"] = next_object_key
+            break
+
+    saved_slides, updated_at = set_home_carousel_slides_setting(db, slides)
+    if old_object_key and old_object_key != next_object_key:
+        remove_object(old_object_key)
+
+    return HomeCarouselResponse(
+        slides=[_serialize_home_carousel_slide(slide) for slide in saved_slides],
+        updated_at=updated_at.isoformat() if updated_at else None,
     )
 
 
@@ -344,11 +463,23 @@ def delete_repository(
     ]
     db.delete(repository)
     db.commit()
+    cleanup_errors: list[str] = []
+    try:
+        cleanup_deleted_note_resources(note_ids, attachment_object_keys)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unable to fully clean deleted repository %s note resources.", repository_id)
+        cleanup_errors.append(str(exc))
     if cover_object_key:
-        remove_object(cover_object_key)
-    for object_key in attachment_object_keys:
-        remove_object(object_key)
-    delete_note_documents(note_ids)
+        try:
+            remove_object(cover_object_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unable to remove cover object for deleted repository %s.", repository_id)
+            cleanup_errors.append(f"cover: {exc}")
+    if cleanup_errors:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Repository was deleted, but some external resources could not be cleaned.",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -434,6 +565,7 @@ def delete_folder(
 @router.post("/notes", response_model=AdminNoteItem, status_code=status.HTTP_201_CREATED)
 def create_note(
     payload: NoteCreateRequest,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, ADMIN_DEPENDENCY],
     db: Annotated[Session, Depends(get_db)],
 ) -> AdminNoteItem:
@@ -448,20 +580,26 @@ def create_note(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Note clearance must be >= L{min_note_level}.",
         )
+    content_markdown, content_text = resolve_note_body(
+        content_markdown=payload.content_markdown,
+        content_text=payload.content_text,
+    )
+
     note = Note(
         repository_id=repository.id,
         folder_id=payload.folder_id,
         author_user_id=current_user.id,
         title=payload.title.strip(),
         author_name=(current_user.full_name or current_user.username).strip() or "系统",
-        content_text=payload.content_text.strip(),
-        content_json=_build_content_json(payload.content_text, payload.content_json),
+        content_markdown=content_markdown,
+        content_text=content_text,
+        content_json=_build_content_json(content_text, payload.content_json),
         min_clearance_level=payload.min_clearance_level,
     )
     db.add(note)
     db.commit()
     db.refresh(note)
-    index_note(db, note.id)
+    enqueue_note_index(background_tasks, db, note.id)
     return _load_note_item(db, note.id)
 
 
@@ -469,6 +607,7 @@ def create_note(
 def update_note(
     note_id: int,
     payload: NoteUpdateRequest,
+    background_tasks: BackgroundTasks,
     _: Annotated[User, ADMIN_DEPENDENCY],
     db: Annotated[Session, Depends(get_db)],
 ) -> AdminNoteItem:
@@ -493,15 +632,21 @@ def update_note(
             detail=f"Note clearance must be >= L{min_note_level}.",
         )
 
+    content_markdown, content_text = resolve_note_body(
+        content_markdown=payload.content_markdown,
+        content_text=payload.content_text,
+    )
+
     note.folder_id = payload.folder_id
     note.title = payload.title.strip()
-    note.content_text = payload.content_text.strip()
-    note.content_json = _build_content_json(payload.content_text, payload.content_json)
+    note.content_markdown = content_markdown
+    note.content_text = content_text
+    note.content_json = _build_content_json(content_text, payload.content_json)
     note.min_clearance_level = payload.min_clearance_level
     db.add(note)
     db.commit()
     db.refresh(note)
-    index_note(db, note.id)
+    enqueue_note_index(background_tasks, db, note.id)
     return _load_note_item(db, note.id)
 
 
@@ -877,8 +1022,20 @@ def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)], current_u
     if _has_role(user, ADMIN_ROLE_CODE):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="System admin user cannot be deleted.")
 
+    avatar_object_key = user.avatar_object_key
     db.delete(user)
     db.commit()
+
+    if avatar_object_key:
+        try:
+            remove_object(avatar_object_key)
+        except Exception as exc:
+            logger.exception("Failed to remove avatar object after deleting user %s: %s", user_id, avatar_object_key)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="User was deleted, but avatar object cleanup failed.",
+            ) from exc
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -904,15 +1061,13 @@ def _build_content_json(content_text: str, content_json: str | None) -> str:
         return content_json.strip()
 
     normalized_text = content_text.strip()
+    paragraph: dict[str, object] = {"type": "paragraph"}
+    if normalized_text:
+        paragraph["content"] = [{"type": "text", "text": normalized_text}]
     return json.dumps(
         {
             "type": "doc",
-            "content": [
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": normalized_text}],
-                }
-            ],
+            "content": [paragraph],
         },
         ensure_ascii=False,
     )
@@ -954,6 +1109,18 @@ def _serialize_folder(folder: Folder) -> AdminFolderItem:
         name=folder.name,
         clearance_level=folder.min_clearance_level,
         note_count=len(folder.notes),
+    )
+
+
+def _serialize_home_carousel_slide(slide: dict[str, object]) -> HomeCarouselSlideItem:
+    index = int(slide["index"])
+    has_upload = bool(str(slide.get("image_object_key") or "").strip())
+    return HomeCarouselSlideItem(
+        index=index,
+        title=str(slide.get("title") or ""),
+        subtitle=str(slide.get("subtitle") or ""),
+        image_url=f"/api/home/carousel/{index}/image" if has_upload else None,
+        has_image_upload=has_upload,
     )
 
 
@@ -1003,10 +1170,14 @@ def _load_repository(db: Session, repository_id: int) -> AdminRepositoryItem:
                 repository_id=note.repository_id,
                 folder_id=note.folder_id,
                 title=note.title,
+                content_markdown=note.content_markdown or "",
                 content_text=note.content_text,
                 clearance_level=note.min_clearance_level,
                 updated_at=note.updated_at.isoformat(),
                 attachment_count=len(note.attachments),
+                search_index_status=note.search_index_status or "indexed",
+                search_index_error=note.search_index_error or None,
+                search_indexed_at=note.search_indexed_at.isoformat() if note.search_indexed_at else None,
             )
             for note in sorted(repository.notes, key=lambda item: item.updated_at, reverse=True)
         ],
@@ -1028,10 +1199,14 @@ def _load_note_item(db: Session, note_id: int) -> AdminNoteItem:
         repository_id=note.repository_id,
         folder_id=note.folder_id,
         title=note.title,
+        content_markdown=note.content_markdown or "",
         content_text=note.content_text,
         clearance_level=note.min_clearance_level,
         updated_at=note.updated_at.isoformat(),
         attachment_count=len(note.attachments),
+        search_index_status=note.search_index_status or "indexed",
+        search_index_error=note.search_index_error or None,
+        search_indexed_at=note.search_indexed_at.isoformat() if note.search_indexed_at else None,
     )
 
 

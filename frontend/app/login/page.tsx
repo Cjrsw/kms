@@ -1,118 +1,164 @@
-import { Lock, ShieldAlert, User } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "../../lib/auth";
+import { PasswordVisibilityInput } from "@/components/password-visibility-input";
 import { loginAction } from "./actions";
+import { LoginSubmitButton } from "./login-submit-button";
 
 type LoginPageProps = {
   searchParams?: Promise<{ error?: string; message?: string; remaining?: string; locked_until?: string }>;
 };
 
-function getErrorMessage(error?: string, message?: string, lockedUntil?: string) {
-  if (message) {
-    if (error === "locked" && lockedUntil) {
-      const unlockedAt = new Date(lockedUntil);
-      if (!Number.isNaN(unlockedAt.getTime())) {
-        const unlockedAtBeijing = unlockedAt.toLocaleString("zh-CN", {
-          hour12: false,
-          timeZone: "Asia/Shanghai"
-        });
-        if (unlockedAt.getTime() <= Date.now()) {
-          return `锁定已过期，请重新尝试登录。（上次解锁时间：${unlockedAtBeijing} 北京时间）`;
-        }
-        return `${message}（解锁时间：${unlockedAtBeijing} 北京时间）`;
-      }
-    }
-    return message;
+function formatLockedUntil(lockedUntil?: string) {
+  if (!lockedUntil) return "";
+  const unlockedAt = new Date(lockedUntil);
+  if (Number.isNaN(unlockedAt.getTime())) return lockedUntil;
+  return unlockedAt.toLocaleString("zh-CN", {
+    hour12: false,
+    timeZone: "Asia/Shanghai"
+  });
+}
+
+function getStatus(error?: string, message?: string, remaining?: string, lockedUntil?: string) {
+  if (!error && !message) {
+    return {
+      state: "ready",
+      code: "SYS://READY",
+      text: "等待身份校验..."
+    };
+  }
+
+  if (error === "locked") {
+    const unlockedAt = formatLockedUntil(lockedUntil);
+    return {
+      state: "locked",
+      code: "SYS://ACCOUNT_LOCKED",
+      text: unlockedAt ? `${message || "账号已锁定，请稍后重试。"} 解锁时间：${unlockedAt} 北京时间` : message || "账号已锁定，请稍后重试。"
+    };
   }
 
   if (error === "required") {
-    return "请输入账号和密码后再登录。";
+    return {
+      state: "error",
+      code: "SYS://MISSING_CREDENTIAL",
+      text: "请输入识别码和密钥。"
+    };
   }
 
-  if (error === "invalid") {
-    return "账号或密码错误，请重试。";
-  }
-
-  return "";
+  const suffix = remaining ? ` 剩余 ${remaining} 次。` : "";
+  return {
+    state: "error",
+    code: "SYS://ACCESS_DENIED",
+    text: `${message || "账号或密码错误，请重试。"}${suffix}`
+  };
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const currentUser = await getCurrentUser();
   if (currentUser) {
-    redirect("/repositories");
+    redirect("/");
   }
 
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const errorMessage = getErrorMessage(
+  const status = getStatus(
     resolvedSearchParams?.error,
     resolvedSearchParams?.message,
+    resolvedSearchParams?.remaining,
     resolvedSearchParams?.locked_until
   );
+  const hasError = status.state === "error" || status.state === "locked";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F5F7FA] px-4 font-sans">
-      <div className="w-full max-w-[400px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/20 bg-white/20 shadow-inner backdrop-blur-sm">
-            <span className="text-3xl font-bold text-white">K</span>
+    <main className="kms-login-body">
+      <div className="kms-login-bg-text">KNOWLEDGE</div>
+      <div className="kms-login-bg-text kms-bottom-text">SYSTEM</div>
+      <div className="kms-login-scan-line" />
+
+      <div className="kms-login-wrapper">
+        <section className="kms-login-left" aria-label="系统标识">
+          <div className="kms-brand-top">
+            <span className="kms-sys-version">VER 3.1.4 //</span>
+            <span className="kms-sys-name">KMS FORCE</span>
+            <div className="kms-brand-line" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">智库 KMS</h1>
-          <p className="mt-2 text-sm font-medium tracking-wide text-blue-100/80">企业级知识管理与协作平台</p>
-        </div>
 
-        <div className="p-8">
-          {errorMessage ? (
-            <div className="mb-5 flex items-center rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              <ShieldAlert className="mr-2 h-4 w-4 flex-shrink-0" />
-              {errorMessage}
+          <div className="kms-brand-center">
+            <div className="kms-large-slogan">
+              DATA
+              <br />
+              INTEGRATION
+              <br />
+              PROTOCOL
             </div>
-          ) : (
-            <div className="mb-5 flex items-center rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
-              <ShieldAlert className="mr-2 h-4 w-4 flex-shrink-0" />
-              现在会使用真实后端账号登录，并建立前端会话。
-            </div>
-          )}
+          </div>
 
-          <form action={loginAction} className="space-y-5">
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">账号</label>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-                  <User className="h-4.5 w-4.5 text-gray-400" />
-                </div>
+          <div className="kms-brand-bottom">
+            <div className="kms-warning-box">
+              <span className="kms-warning-icon">!</span>
+              <div className="kms-warning-content">
+                <span className="kms-warning-title">WARNING</span>
+                <span className="kms-warning-text">UNAUTHORIZED ACCESS IS STRICTLY PROHIBITED</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="kms-login-right" aria-label="登录面板">
+          <div className="kms-auth-panel">
+            <div className="kms-auth-header">
+              <h1 className="kms-auth-title">SYSTEM AUTHENTICATION</h1>
+              <span className="kms-auth-subtitle">系统身份校验协议</span>
+              <div className="kms-auth-line" />
+            </div>
+
+            <form action={loginAction} className="kms-auth-form">
+              <div className="kms-edit-field">
+                <label className="kms-cyber-label" htmlFor="loginUsername">
+                  识别码 (ID / USERNAME)
+                </label>
                 <input
-                  className="block w-full rounded-xl border border-gray-300 bg-gray-50 py-3 pl-10 pr-3 text-sm text-gray-500 outline-none transition-all"
+                  autoComplete="username"
+                  className={`kms-cyber-input ${hasError ? "is-error" : ""}`}
+                  id="loginUsername"
                   name="username"
-                  placeholder="请输入登录账号"
+                  placeholder="Input access ID..."
+                  required
                   type="text"
                 />
               </div>
-            </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-gray-700">密码</label>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-                  <Lock className="h-4.5 w-4.5 text-gray-400" />
-                </div>
-                <input
-                  className="block w-full rounded-xl border border-gray-300 bg-gray-50 py-3 pl-10 pr-3 text-sm text-gray-500 outline-none transition-all"
+              <div className="kms-edit-field">
+                <label className="kms-cyber-label" htmlFor="loginPassword">
+                  密钥 (PASSWORD)
+                </label>
+                <PasswordVisibilityInput
+                  autoComplete="current-password"
+                  className="kms-cyber-input"
+                  hasError={hasError}
+                  id="loginPassword"
                   name="password"
-                  placeholder="请输入登录密码"
-                  type="password"
+                  placeholder="Input secret key..."
+                  required
                 />
               </div>
-            </div>
 
-            <button
-              className="w-full rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
-              type="submit"
-            >
-              登录系统
-            </button>
-          </form>
-        </div>
+              <div className="kms-auth-options">
+                <div className="kms-session-policy">
+                  <span className="kms-session-dot" />
+                  <span>SESSION TTL // 12H 安全会话</span>
+                </div>
+                <div className="kms-contact-admin">CONTACT ADMIN?</div>
+              </div>
+
+              <LoginSubmitButton />
+
+              <div className="kms-auth-status-panel" data-state={status.state} role="status" aria-live="polite">
+                <span className="kms-status-code">{status.code}</span>
+                <span className="kms-status-text">{status.text}</span>
+              </div>
+            </form>
+          </div>
+        </section>
       </div>
     </main>
   );

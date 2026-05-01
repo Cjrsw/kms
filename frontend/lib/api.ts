@@ -28,14 +28,69 @@ export type RepositoryListItem = {
     id: number;
     title: string;
     folder_id: number | null;
+    content_text: string;
     author_name: string;
     author_user_id: number | null;
     clearance_level: number;
     created_at: string;
     updated_at: string;
+    editable_by_clearance: boolean;
+    can_edit: boolean;
     attachment_count: number;
     can_delete: boolean;
+    search_index_status: string;
+    search_index_error: string | null;
+    search_indexed_at: string | null;
   }>;
+};
+
+export type HomeCarouselSlide = {
+  index: number;
+  title: string;
+  subtitle: string;
+  image_url: string | null;
+  has_image_upload: boolean;
+};
+
+export type HomeCarouselResponse = {
+  slides: HomeCarouselSlide[];
+  updated_at: string | null;
+};
+
+export type HomeAnnouncement = {
+  title: string;
+  content: string;
+  updated_at: string | null;
+};
+
+export type HomeNoteItem = {
+  id: number;
+  repository_slug: string;
+  repository_name: string;
+  title: string;
+  snippet: string;
+  author_name: string;
+  updated_at: string;
+  href: string;
+};
+
+export type HomeActivityItem = {
+  id: string;
+  kind: string;
+  status: string;
+  repository_slug: string;
+  repository_name: string;
+  note_id: number;
+  note_title: string;
+  message: string;
+  updated_at: string;
+  href: string;
+};
+
+export type HomeDashboard = {
+  latest_notes: HomeNoteItem[];
+  announcement: HomeAnnouncement;
+  activities: HomeActivityItem[];
 };
 
 export type RepositoryDetail = {
@@ -56,13 +111,19 @@ export type RepositoryDetail = {
     id: number;
     title: string;
     folder_id: number | null;
+    content_text: string;
     author_name: string;
     author_user_id: number | null;
     clearance_level: number;
     created_at: string;
     updated_at: string;
+    editable_by_clearance: boolean;
+    can_edit: boolean;
     attachment_count: number;
     can_delete: boolean;
+    search_index_status: string;
+    search_index_error: string | null;
+    search_indexed_at: string | null;
   }>;
 };
 
@@ -83,11 +144,18 @@ export type NoteDetail = {
   title: string;
   author_name: string;
   author_user_id: number | null;
+  content_markdown: string;
   content_json: string;
   content_text: string;
   clearance_level: number;
   updated_at: string;
+  editable_by_clearance: boolean;
+  can_edit: boolean;
+  can_change_edit_policy: boolean;
   can_delete: boolean;
+  search_index_status: string;
+  search_index_error: string | null;
+  search_indexed_at: string | null;
   like_count: number;
   liked_by_me: boolean;
   favorite_count: number;
@@ -110,6 +178,22 @@ export type FavoriteNoteItem = {
 export type FavoriteNotesResponse = {
   total: number;
   items: FavoriteNoteItem[];
+};
+
+export type MyNoteItem = {
+  note_id: number;
+  repository_slug: string;
+  repository_name: string;
+  title: string;
+  content_text: string;
+  clearance_level: number;
+  updated_at: string;
+  href: string;
+};
+
+export type MyNotesResponse = {
+  total: number;
+  items: MyNoteItem[];
 };
 
 export type SearchResultItem = {
@@ -250,6 +334,9 @@ export type AdminNoteItem = {
   clearance_level: number;
   updated_at: string;
   attachment_count: number;
+  search_index_status: string;
+  search_index_error: string | null;
+  search_indexed_at: string | null;
 };
 
 export type AdminRepositoryItem = {
@@ -502,7 +589,15 @@ export async function getNote(repositorySlug: string, noteId: string): Promise<N
 
 export async function createNoteUser(
   repositorySlug: string,
-  payload: { title: string; content_text?: string; content_json?: string; folder_id?: number | null; min_clearance_level?: number }
+  payload: {
+    title: string;
+    content_markdown?: string;
+    content_text?: string;
+    content_json?: string;
+    folder_id?: number | null;
+    min_clearance_level?: number;
+    editable_by_clearance?: boolean;
+  }
 ): Promise<NoteDetail> {
   const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/notes`, {
@@ -620,7 +715,13 @@ export async function toggleNoteFavorite(
 export async function updateNote(
   repositorySlug: string,
   noteId: string,
-  payload: { title: string; content_text: string; content_json?: string }
+  payload: {
+    title: string;
+    content_markdown?: string;
+    content_text: string;
+    content_json?: string;
+    editable_by_clearance?: boolean;
+  }
 ): Promise<NoteDetail> {
   const token = await getRequiredAccessToken();
   const response = await fetch(`${API_BASE_URL}/repositories/${repositorySlug}/notes/${noteId}`, {
@@ -793,6 +894,22 @@ export async function askQa(payload: {
 
 export async function getQaAvailableModels(): Promise<QaAvailableModels> {
   return apiFetch<QaAvailableModels>("/qa/models");
+}
+
+export async function getHomeCarousel(): Promise<HomeCarouselResponse> {
+  return apiFetch<HomeCarouselResponse>("/home/carousel");
+}
+
+export async function getHomeDashboard(): Promise<HomeDashboard> {
+  return apiFetch<HomeDashboard>("/home/dashboard");
+}
+
+export async function getAdminHomeCarousel(): Promise<HomeCarouselResponse> {
+  return apiFetch<HomeCarouselResponse>("/admin/home-carousel");
+}
+
+export async function getAdminHomeAnnouncement(): Promise<HomeAnnouncement> {
+  return apiFetch<HomeAnnouncement>("/admin/home-announcement");
 }
 
 export async function getAdminContent(): Promise<AdminContent> {
@@ -1068,6 +1185,10 @@ export async function deleteMyAvatar(): Promise<void> {
 
 export async function getMyFavorites(): Promise<FavoriteNotesResponse> {
   return apiFetch<FavoriteNotesResponse>("/auth/me/favorites");
+}
+
+export async function getMyNotes(): Promise<MyNotesResponse> {
+  return apiFetch<MyNotesResponse>("/auth/me/notes");
 }
 
 export async function changeMyPassword(payload: { current_password: string; new_password: string }): Promise<void> {

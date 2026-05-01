@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMS - SYSTEM AUTHENTICATION</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Noto+Sans+SC:wght@400;500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-body">
+    <!-- Background Decor -->
+    <div class="login-bg-text">KNOWLEDGE</div>
+    <div class="login-bg-text bottom-text">SYSTEM</div>
+    <div class="login-scan-line"></div>
+
+    <div class="login-wrapper">
+        <!-- Left Side: Branding & Warning -->
+        <div class="login-left">
+            <div class="brand-top">
+                <span class="sys-version">VER 3.1.4 //</span>
+                <span class="sys-name">PUNISHING FORCE</span>
+                <div class="brand-line"></div>
+            </div>
+            <div class="brand-center">
+                <div class="large-slogan">
+                    DATA<br>INTEGRATION<br>PROTOCOL
+                </div>
+            </div>
+            <div class="brand-bottom">
+                <div class="warning-box">
+                    <span class="warning-icon">⚠</span>
+                    <div class="warning-content">
+                        <span class="warning-title">WARNING</span>
+                        <span class="warning-text">UNAUTHORIZED ACCESS IS STRICTLY PROHIBITED</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side: Auth Console -->
+        <div class="login-right">
+            <div class="auth-panel">
+                <div class="auth-header">
+                    <h2 class="auth-title">SYSTEM AUTHENTICATION</h2>
+                    <span class="auth-subtitle">系统身份校验协议</span>
+                    <div class="auth-line"></div>
+                </div>
+
+                <form class="auth-form" id="loginForm" novalidate>
+                    <div class="edit-field">
+                        <label class="cyber-label" for="loginUsername">识别码 (ID / USERNAME)</label>
+                        <input id="loginUsername" name="username" type="text" class="cyber-input" placeholder="Input access ID..." autocomplete="username" required>
+                    </div>
+                    <div class="edit-field">
+                        <label class="cyber-label" for="loginPassword">密钥 (PASSWORD)</label>
+                        <input id="loginPassword" name="password" type="password" class="cyber-input" placeholder="Input secret key..." autocomplete="current-password" required>
+                    </div>
+                    
+                    <div class="auth-options">
+                        <div class="session-policy">
+                            <span class="session-dot"></span>
+                            <span>SESSION TTL // 12H 安全会话</span>
+                        </div>
+                        <button type="button" class="forgot-link" id="contactAdminBtn">CONTACT ADMIN?</button>
+                    </div>
+
+                    <button type="submit" class="cyber-btn login-submit-btn" id="loginSubmitBtn">
+                        <span class="btn-text">LOGIN // 授权接入</span>
+                    </button>
+                    
+                    <div class="auth-status-panel" id="loginStatus" data-state="ready" role="status" aria-live="polite">
+                        <span class="status-code">SYS://READY</span>
+                        <span class="status-text">等待身份校验...</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

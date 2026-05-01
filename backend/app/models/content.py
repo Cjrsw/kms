@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -46,9 +46,14 @@ class Note(Base):
     author_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str] = mapped_column(String(255))
     author_name: Mapped[str] = mapped_column(String(120), default="系统")
+    content_markdown: Mapped[str] = mapped_column(Text, default="")
     content_json: Mapped[str] = mapped_column(Text, default="{}")
     content_text: Mapped[str] = mapped_column(Text, default="")
     min_clearance_level: Mapped[int] = mapped_column(Integer, default=1)
+    editable_by_clearance: Mapped[bool] = mapped_column(Boolean, default=False)
+    search_index_status: Mapped[str] = mapped_column(String(20), default="indexed")
+    search_index_error: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    search_indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

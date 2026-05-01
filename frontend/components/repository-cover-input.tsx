@@ -10,9 +10,17 @@ const MAX_REPOSITORY_COVER_SIZE = 10 * 1024 * 1024;
 type RepositoryCoverInputProps = {
   defaultPreviewUrl?: string | null;
   hasDefaultUpload?: boolean;
+  inputName?: string;
+  clearName?: string;
+  emptyLabel?: string;
 };
 
-export function RepositoryCoverInput({ defaultPreviewUrl, hasDefaultUpload }: RepositoryCoverInputProps) {
+export function RepositoryCoverInput({
+  defaultPreviewUrl,
+  inputName = "cover_image",
+  clearName = "clear_cover_image",
+  emptyLabel = "无封面",
+}: RepositoryCoverInputProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -99,14 +107,14 @@ export function RepositoryCoverInput({ defaultPreviewUrl, hasDefaultUpload }: Re
       <input
         ref={inputRef}
         accept="image/png,image/jpeg,image/webp"
-        name="cover_image"
+        name={inputName}
         type="file"
         className="hidden"
         onChange={handleFileChange}
       />
       
       {/* 标志着需要删除原有封面的隐藏字段 */}
-      {isDeleted && <input type="hidden" name="clear_cover_image" value="on" />}
+      {isDeleted && <input type="hidden" name={clearName} value="on" />}
 
       {/* 外部展示按钮区 */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -126,7 +134,7 @@ export function RepositoryCoverInput({ defaultPreviewUrl, hasDefaultUpload }: Re
         ) : (
           <div className="flex h-24 w-40 shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-slate-400">
             <ImageIcon className="h-6 w-6 opacity-50" />
-            <span className="text-xs font-medium">无封面</span>
+            <span className="text-xs font-medium">{emptyLabel}</span>
           </div>
         )}
 

@@ -4,10 +4,12 @@ import uuid
 from typing import Any
 
 import httpx
+import logging
 
 from app.core.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def upsert_chunk_vectors(
@@ -41,7 +43,7 @@ def delete_points_by_note_id(note_id: int) -> None:
             "must": [{"key": "note_id", "match": {"value": note_id}}],
         }
     }
-    _request("POST", f"/collections/{collection}/points/delete?wait=true", json=body, swallow_errors=True)
+    _request("POST", f"/collections/{collection}/points/delete?wait=true", json=body)
 
 
 def delete_points_by_note_ids(note_ids: list[int]) -> None:
@@ -53,12 +55,48 @@ def delete_points_by_note_ids(note_ids: list[int]) -> None:
             "must": [{"key": "note_id", "match": {"any": note_ids}}],
         }
     }
-    _request("POST", f"/collections/{collection}/points/delete?wait=true", json=body, swallow_errors=True)
+    _request("POST", f"/collections/{collection}/points/delete?wait=true", json=body)
 
 
 def reset_collection() -> None:
     collection = settings.qdrant_collection
     _request("DELETE", f"/collections/{collection}", swallow_errors=True)
+
+
+def list_indexed_note_ids() -> set[int]:
+    collection = settings.qdrant_collection
+    response = _request("GET", f"/collections/{collection}", swallow_errors=True)
+    if not response or not response.get("result"):
+        return set()
+
+    note_ids: set[int] = set()
+    next_page_offset: Any = None
+    while True:
+        body: dict[str, Any] = {
+            "limit": 256,
+            "with_payload": True,
+            "with_vector": False,
+        }
+        if next_page_offset is not None:
+            body["offset"] = next_page_offset
+        response = _request(
+            "POST",
+            f"/collections/{collection}/points/scroll",
+            json=body,
+            swallow_errors=True,
+        )
+        if not response:
+            logger.warning("Unable to scroll Qdrant collection %s while checking indexed note ids.", collection)
+            return note_ids
+        result = response.get("result") or {}
+        for point in result.get("points") or []:
+            payload = point.get("payload") or {}
+            note_id = payload.get("note_id")
+            if isinstance(note_id, int):
+                note_ids.add(note_id)
+        next_page_offset = result.get("next_page_offset")
+        if next_page_offset is None:
+            return note_ids
 
 
 def search_similar_chunks(

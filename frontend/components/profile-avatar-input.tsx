@@ -74,7 +74,7 @@ export function ProfileAvatarInput({ defaultPreviewUrl, displayName }: ProfileAv
   };
 
   return (
-    <div className="space-y-4">
+    <div className="kms-profile-avatar-control">
       <input
         ref={inputRef}
         accept="image/png,image/jpeg,image/webp"
@@ -85,38 +85,35 @@ export function ProfileAvatarInput({ defaultPreviewUrl, displayName }: ProfileAv
       />
       {isDeleted ? <input type="hidden" name="clear_avatar" value="on" /> : null}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+      <div className="kms-profile-avatar-control-preview">
           {previewUrl ? (
             <img alt={`${displayName} avatar`} className="h-full w-full object-cover" src={previewUrl} />
           ) : (
-            <span className="text-2xl font-bold text-slate-500">{displayName.slice(0, 1) || <User className="h-6 w-6" />}</span>
+            <span>{displayName.slice(0, 1) || <User className="h-6 w-6" />}</span>
           )}
         </div>
-        <div className="space-y-2">
+        <div className="kms-profile-avatar-control-actions">
+          <div className="kms-profile-avatar-control-label">AVATAR // 头像</div>
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
             <Camera className="h-4 w-4" />
-            选择头像
+            SELECT
           </button>
           {previewUrl ? (
             <div>
               <button
                 type="button"
                 onClick={handleDeleteAvatar}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-rose-600 transition-colors hover:text-rose-700"
               >
                 <Trash2 className="h-4 w-4" />
-                移除头像
+                REMOVE
               </button>
             </div>
           ) : null}
-          <p className="text-xs text-slate-500">支持 PNG、JPG、WEBP，小于 5MB。保存资料后生效。</p>
+          <p>支持 PNG、JPG、WEBP，小于 5MB。保存资料后生效。</p>
         </div>
-      </div>
 
       {isCropping && imageSrc ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
@@ -133,7 +130,7 @@ export function ProfileAvatarInput({ defaultPreviewUrl, displayName }: ProfileAv
                 crop={crop}
                 zoom={zoom}
                 aspect={1}
-                cropShape="round"
+                cropShape="rect"
                 onCropChange={setCrop}
                 onCropComplete={onCropComplete}
                 onZoomChange={setZoom}

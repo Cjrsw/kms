@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,12 +19,14 @@ from app.services.runtime_llm import ModelInvocationError, invoke_embedding, is_
 from app.services.vector_store import (
     delete_points_by_note_id,
     delete_points_by_note_ids,
+    list_indexed_note_ids,
     reset_collection,
     search_similar_chunks,
     upsert_chunk_vectors,
 )
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 NOTES_INDEX = "kms_notes"
 TARGET_CHUNK_CHARS = 560
@@ -145,6 +148,9 @@ def sync_all_notes(db: Session, *, include_vector: bool = False) -> None:
     )
     for note in notes:
         _upsert_note_document(db, note, include_vector=include_vector)
+    cleanup_stale_search_documents(db)
+    cleanup_stale_vector_points(db)
+    backfill_missing_vector_points(db)
 
 
 def rebuild_notes_index(db: Session, *, include_vector: bool = False) -> None:
@@ -183,8 +189,19 @@ def index_note(db: Session, note_id: int) -> None:
 def delete_note_document(note_id: int) -> None:
     ensure_notes_index()
     client = get_es_client()
-    client.delete_by_query(index=NOTES_INDEX, body={"query": {"term": {"note_id": note_id}}}, refresh=True)
-    delete_points_by_note_id(note_id)
+    errors: list[str] = []
+    try:
+        client.delete_by_query(index=NOTES_INDEX, body={"query": {"term": {"note_id": note_id}}}, refresh=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unable to delete Elasticsearch documents for note %s.", note_id)
+        errors.append(f"Elasticsearch: {exc}")
+    try:
+        delete_points_by_note_id(note_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unable to delete Qdrant vectors for note %s.", note_id)
+        errors.append(f"Qdrant: {exc}")
+    if errors:
+        raise RuntimeError("; ".join(errors))
 
 
 def delete_note_documents(note_ids: list[int]) -> None:
@@ -193,12 +210,83 @@ def delete_note_documents(note_ids: list[int]) -> None:
         return
     ensure_notes_index()
     client = get_es_client()
+    errors: list[str] = []
+    try:
+        client.delete_by_query(
+            index=NOTES_INDEX,
+            body={"query": {"terms": {"note_id": valid_note_ids}}},
+            refresh=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unable to delete Elasticsearch documents for notes %s.", valid_note_ids)
+        errors.append(f"Elasticsearch: {exc}")
+    try:
+        delete_points_by_note_ids(valid_note_ids)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unable to delete Qdrant vectors for notes %s.", valid_note_ids)
+        errors.append(f"Qdrant: {exc}")
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+
+def cleanup_stale_vector_points(db: Session) -> list[int]:
+    valid_note_ids = {int(note_id) for note_id, in db.query(Note.id).all()}
+    indexed_note_ids = list_indexed_note_ids()
+    stale_note_ids = sorted(indexed_note_ids - valid_note_ids)
+    if not stale_note_ids:
+        return []
+    delete_points_by_note_ids(stale_note_ids)
+    logger.info("Deleted stale Qdrant vectors for missing notes: %s", stale_note_ids)
+    return stale_note_ids
+
+
+def cleanup_stale_search_documents(db: Session) -> list[int]:
+    valid_note_ids = {int(note_id) for note_id, in db.query(Note.id).all()}
+    ensure_notes_index()
+    client = get_es_client()
+    response = client.search(
+        index=NOTES_INDEX,
+        size=0,
+        aggs={"note_ids": {"terms": {"field": "note_id", "size": 10000}}},
+    )
+    indexed_note_ids = {
+        int(bucket["key"])
+        for bucket in response.get("aggregations", {}).get("note_ids", {}).get("buckets", [])
+        if "key" in bucket
+    }
+    stale_note_ids = sorted(indexed_note_ids - valid_note_ids)
+    if not stale_note_ids:
+        return []
     client.delete_by_query(
         index=NOTES_INDEX,
-        body={"query": {"terms": {"note_id": valid_note_ids}}},
+        body={"query": {"terms": {"note_id": stale_note_ids}}},
         refresh=True,
     )
-    delete_points_by_note_ids(valid_note_ids)
+    logger.info("Deleted stale Elasticsearch documents for missing notes: %s", stale_note_ids)
+    return stale_note_ids
+
+
+def backfill_missing_vector_points(db: Session) -> list[int]:
+    if not is_embedding_configured():
+        return []
+    valid_note_ids = {int(note_id) for note_id, in db.query(Note.id).all()}
+    indexed_note_ids = list_indexed_note_ids()
+    missing_note_ids = sorted(valid_note_ids - indexed_note_ids)
+    if not missing_note_ids:
+        return []
+
+    backfilled: list[int] = []
+    for note_id in missing_note_ids:
+        try:
+            index_note(db, note_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Unable to backfill missing Qdrant vectors for note %s: %s", note_id, exc)
+            db.rollback()
+            continue
+        backfilled.append(note_id)
+    if backfilled:
+        logger.info("Backfilled missing Qdrant vectors for notes: %s", backfilled)
+    return backfilled
 
 
 def search_notes(
@@ -345,7 +433,13 @@ def hybrid_recall_for_qa(
             limit=max(safe_top_k * 3, safe_top_k),
             per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
         )
-        final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
+        final = _finalize_qa_recall_chunks(
+            db=db,
+            user=user,
+            chunks=final,
+            query_terms=query_terms,
+            repository_slug=repository_slug,
+        )
         return final, "keyword"
 
     try:
@@ -361,7 +455,13 @@ def hybrid_recall_for_qa(
             limit=max(safe_top_k * 3, safe_top_k),
             per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
         )
-        final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
+        final = _finalize_qa_recall_chunks(
+            db=db,
+            user=user,
+            chunks=final,
+            query_terms=query_terms,
+            repository_slug=repository_slug,
+        )
         return final, "keyword"
 
     vector_hits = search_similar_chunks(
@@ -381,7 +481,13 @@ def hybrid_recall_for_qa(
             limit=max(safe_top_k * 3, safe_top_k),
             per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
         )
-        final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
+        final = _finalize_qa_recall_chunks(
+            db=db,
+            user=user,
+            chunks=final,
+            query_terms=query_terms,
+            repository_slug=repository_slug,
+        )
         return final, "keyword"
 
     vector_note_ids: list[int] = []
@@ -413,7 +519,13 @@ def hybrid_recall_for_qa(
         limit=max(safe_top_k * 3, safe_top_k),
         per_note_limit=max(settings.qa_context_max_chunks_per_note, 1),
     )
-    final = _prefer_positive_signal_chunks(final, query_terms=query_terms)
+    final = _finalize_qa_recall_chunks(
+        db=db,
+        user=user,
+        chunks=final,
+        query_terms=query_terms,
+        repository_slug=repository_slug,
+    )
     if not final:
         return [], "keyword"
     has_vector = any(item.hit_mode in {"vector", "hybrid"} for item in final)
@@ -425,6 +537,75 @@ def hybrid_recall_for_qa(
     else:
         recall_mode = "keyword"
     return final, recall_mode
+
+
+def _finalize_qa_recall_chunks(
+    *,
+    db: Session,
+    user: User,
+    chunks: list[QaRecallChunk],
+    query_terms: list[str],
+    repository_slug: str | None,
+) -> list[QaRecallChunk]:
+    positive_chunks = _prefer_positive_signal_chunks(chunks, query_terms=query_terms)
+    return _filter_existing_qa_recall_chunks(
+        db=db,
+        user=user,
+        chunks=positive_chunks,
+        repository_slug=repository_slug,
+    )
+
+
+def _filter_existing_qa_recall_chunks(
+    *,
+    db: Session,
+    user: User,
+    chunks: list[QaRecallChunk],
+    repository_slug: str | None,
+) -> list[QaRecallChunk]:
+    note_ids = sorted({chunk.note_id for chunk in chunks if chunk.note_id > 0})
+    if not note_ids:
+        return []
+
+    note_query = (
+        db.query(Note)
+        .join(Repository, Repository.id == Note.repository_id)
+        .options(selectinload(Note.repository), selectinload(Note.attachments))
+        .filter(
+            Note.id.in_(note_ids),
+            Note.min_clearance_level <= user.clearance_level,
+            Repository.min_clearance_level <= user.clearance_level,
+        )
+    )
+    if repository_slug:
+        note_query = note_query.filter(Repository.slug == repository_slug)
+
+    notes_by_id = {note.id: note for note in note_query.all() if note.repository is not None}
+    filtered: list[QaRecallChunk] = []
+    for chunk in chunks:
+        note = notes_by_id.get(chunk.note_id)
+        if note is None or note.repository is None:
+            continue
+        filtered.append(
+            QaRecallChunk(
+                chunk_key=chunk.chunk_key,
+                note_id=note.id,
+                chunk_index=chunk.chunk_index,
+                source_type=chunk.source_type,
+                repository_slug=note.repository.slug,
+                repository_name=note.repository.name,
+                title=note.title,
+                author_name=note.author_name or "system",
+                chunk_text=chunk.chunk_text,
+                snippet=chunk.snippet,
+                clearance_level=note.min_clearance_level,
+                attachment_count=len(note.attachments),
+                score=chunk.score,
+                updated_at=note.updated_at.isoformat(),
+                hit_mode=chunk.hit_mode,
+            )
+        )
+    return filtered
 
 
 def _search_keyword_chunks_for_qa(
@@ -856,15 +1037,17 @@ def _build_qa_chunk_from_vector_payload(payload: dict[str, Any], fallback: dict[
     chunk_index = payload.get("chunk_index")
     if not isinstance(note_id, int) or not isinstance(chunk_index, int):
         return None
+    if fallback is None:
+        return None
 
     source_type = str(payload.get("source_type") or "note")
-    repository_slug = str(payload.get("repository_slug") or (fallback or {}).get("repository_slug") or "")
-    repository_name = str(payload.get("repository_name") or (fallback or {}).get("repository_name") or "")
-    title = str(payload.get("title") or (fallback or {}).get("title") or f"Note #{note_id}")
-    author_name = str(payload.get("author_name") or (fallback or {}).get("author_name") or "system")
-    clearance = int(payload.get("clearance_level") or (fallback or {}).get("clearance_level") or 1)
-    updated_at = str(payload.get("updated_at") or (fallback or {}).get("updated_at") or "")
-    attachment_count = int(payload.get("attachment_count") or (fallback or {}).get("attachment_count") or 0)
+    repository_slug = str(fallback.get("repository_slug") or payload.get("repository_slug") or "")
+    repository_name = str(fallback.get("repository_name") or payload.get("repository_name") or "")
+    title = str(fallback.get("title") or payload.get("title") or f"Note #{note_id}")
+    author_name = str(fallback.get("author_name") or payload.get("author_name") or "system")
+    clearance = int(fallback.get("clearance_level") or payload.get("clearance_level") or 1)
+    updated_at = str(fallback.get("updated_at") or payload.get("updated_at") or "")
+    attachment_count = int(fallback.get("attachment_count") or payload.get("attachment_count") or 0)
     chunk_text = str(payload.get("chunk_text") or "").strip()
     if not chunk_text:
         return None
@@ -897,7 +1080,11 @@ def _query_notes_for_vector(db: Session, user: User, note_ids: list[int]) -> dic
     notes = (
         db.query(Note)
         .join(Repository, Repository.id == Note.repository_id)
-        .filter(Note.id.in_(unique_ids), Note.min_clearance_level <= user.clearance_level)
+        .filter(
+            Note.id.in_(unique_ids),
+            Note.min_clearance_level <= user.clearance_level,
+            Repository.min_clearance_level <= user.clearance_level,
+        )
         .all()
     )
     result: dict[int, dict[str, Any]] = {}

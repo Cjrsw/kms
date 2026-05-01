@@ -62,6 +62,7 @@ function finishAdminMutation(formData: FormData, fallbackPath: string) {
   revalidatePath("/admin/users");
   revalidatePath("/admin/departments");
   revalidatePath("/admin/repositories");
+  revalidatePath("/admin/folders");
   revalidatePath("/admin/security/cors");
   revalidatePath("/admin/security/auth-audit");
   revalidatePath("/admin/ai/prompt");
@@ -183,7 +184,7 @@ export async function createFolderAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation(formData, "/admin/repositories");
+  finishAdminMutation(formData, "/admin/folders");
 }
 
 export async function updateFolderAction(formData: FormData) {
@@ -193,12 +194,12 @@ export async function updateFolderAction(formData: FormData) {
     min_clearance_level: parseRequiredNumber(formData, "min_clearance_level")
   });
 
-  finishAdminMutation(formData, "/admin/repositories");
+  finishAdminMutation(formData, "/admin/folders");
 }
 
 export async function deleteFolderAction(formData: FormData) {
   await deleteFolderAdmin(String(formData.get("folder_id")));
-  finishAdminMutation(formData, "/admin/repositories");
+  finishAdminMutation(formData, "/admin/folders");
 }
 
 export async function createNoteAction(formData: FormData) {

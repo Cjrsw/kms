@@ -24,8 +24,9 @@ Build an enterprise knowledge management MVP with:
 ### Knowledge Content
 
 - repository -> folder -> note -> attachment hierarchy
-- note body stored as `content_json`
-- retrieval and indexing use `content_text`
+- note body backend canonical field is `content_markdown`
+- `content_text` is derived from note body for retrieval, indexing, chunking, vector search, and QA
+- `content_json` is retained only as a legacy rich-text frontend compatibility field
 - attachment support is limited to `pdf` and `docx`
 - online preview supports `pdf` only; `docx` should prompt then download
 

@@ -6,10 +6,14 @@ class AdminNoteItem(BaseModel):
     repository_id: int
     folder_id: int | None
     title: str
+    content_markdown: str
     content_text: str
     clearance_level: int
     updated_at: str
     attachment_count: int
+    search_index_status: str
+    search_index_error: str | None = None
+    search_indexed_at: str | None = None
 
 
 class AdminFolderItem(BaseModel):
@@ -58,6 +62,60 @@ class AdminContentResponse(BaseModel):
 class AdminRepositoriesResponse(BaseModel):
     total: int
     repositories: list[AdminRepositorySummaryItem]
+
+
+class HomeCarouselSlideItem(BaseModel):
+    index: int
+    title: str
+    subtitle: str
+    image_url: str | None = None
+    has_image_upload: bool = False
+
+
+class HomeCarouselResponse(BaseModel):
+    slides: list[HomeCarouselSlideItem]
+    updated_at: str | None = None
+
+
+class HomeAnnouncementResponse(BaseModel):
+    title: str
+    content: str
+    updated_at: str | None = None
+
+
+class HomeAnnouncementUpdateRequest(BaseModel):
+    title: str = Field(default="", max_length=80)
+    content: str = Field(default="", max_length=1000)
+
+
+class HomeNoteItem(BaseModel):
+    id: int
+    repository_slug: str
+    repository_name: str
+    title: str
+    snippet: str
+    author_name: str
+    updated_at: str
+    href: str
+
+
+class HomeActivityItem(BaseModel):
+    id: str
+    kind: str
+    status: str
+    repository_slug: str
+    repository_name: str
+    note_id: int
+    note_title: str
+    message: str
+    updated_at: str
+    href: str
+
+
+class HomeDashboardResponse(BaseModel):
+    latest_notes: list[HomeNoteItem]
+    announcement: HomeAnnouncementResponse
+    activities: list[HomeActivityItem]
 
 
 class AdminUserItem(BaseModel):
@@ -178,7 +236,8 @@ class NoteCreateRequest(BaseModel):
     repository_id: int
     folder_id: int | None = None
     title: str
-    content_text: str
+    content_markdown: str | None = None
+    content_text: str = ""
     content_json: str | None = None
     min_clearance_level: int = Field(default=1, ge=1, le=4)
 
@@ -186,7 +245,8 @@ class NoteCreateRequest(BaseModel):
 class NoteUpdateRequest(BaseModel):
     folder_id: int | None = None
     title: str
-    content_text: str
+    content_markdown: str | None = None
+    content_text: str = ""
     content_json: str | None = None
     min_clearance_level: int = Field(default=1, ge=1, le=4)
 

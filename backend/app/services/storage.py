@@ -37,6 +37,11 @@ def build_repository_cover_object_key(repository_id: int, file_name: str) -> str
     return f"repositories/{repository_id}/cover/{uuid4().hex}{suffix}"
 
 
+def build_home_carousel_object_key(slide_index: int, file_name: str) -> str:
+    suffix = Path(file_name).suffix.lower()
+    return f"home/carousel/{slide_index}/{uuid4().hex}{suffix}"
+
+
 def build_user_avatar_object_key(user_id: int, file_name: str) -> str:
     suffix = Path(file_name).suffix.lower()
     return f"users/{user_id}/avatar/{uuid4().hex}{suffix}"

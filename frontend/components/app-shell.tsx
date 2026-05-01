@@ -1,266 +1,474 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { clsx } from "clsx";
-import { Bell, Database, Info, LogOut, Menu, MessageSquare, Search, Settings, User } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Menu } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import type { AuthUser } from "../lib/auth";
 
 type NavigationItem = {
   href: string;
   label: string;
+  en: string;
   matchers: string[];
-  icon: typeof Database;
-  requiredRoles?: string[];
 };
 
 const navigationItems: NavigationItem[] = [
-  { href: "/repositories", label: "知识仓库", matchers: ["/repositories"], icon: Database },
-  { href: "/search", label: "全文检索", matchers: ["/search"], icon: Search },
-  { href: "/qa", label: "知识问答", matchers: ["/qa"], icon: MessageSquare }
+  { href: "/", label: "首页", en: "HOME", matchers: ["/"] },
+  { href: "/repositories", label: "知识仓库", en: "REPOSITORY", matchers: ["/repositories"] },
+  { href: "/search", label: "全文检索", en: "SEARCH", matchers: ["/search"] },
+  { href: "/qa", label: "知识问答", en: "Q&A", matchers: ["/qa"] },
+  { href: "/profile", label: "个人中心", en: "PROFILE", matchers: ["/profile"] }
 ];
 
 type AppShellProps = {
-  title: string;
-  description: string;
   children: ReactNode;
-  contentClassName?: string;
   currentUser: AuthUser;
 };
 
+type RollingTextProps = {
+  value: string;
+  direction: "up" | "down";
+  className: string;
+  element?: "h1" | "span";
+};
+
 function isActive(pathname: string, matchers: string[]) {
-  return matchers.some((matcher) => pathname === matcher || pathname.startsWith(`${matcher}/`));
+  return matchers.some((matcher) => {
+    if (matcher === "/") {
+      return pathname === "/";
+    }
+    return pathname === matcher || pathname.startsWith(`${matcher}/`);
+  });
 }
 
-export function AppShell({ title, description, children, contentClassName, currentUser }: AppShellProps) {
+function resolveCurrentItem(pathname: string) {
+  return navigationItems.find((item) => isActive(pathname, item.matchers)) ?? navigationItems[0];
+}
+
+function RollingText({ value, direction, className, element = "span" }: RollingTextProps) {
+  const [currentValue, setCurrentValue] = useState(value);
+  const elementRef = useRef<HTMLElement | null>(null);
+  const currentValueRef = useRef(value);
+  const timeoutRef = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const elementNode = elementRef.current;
+    if (!elementNode || value === currentValueRef.current) {
+      return undefined;
+    }
+
+    if (timeoutRef.current) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (frameRef.current) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+
+    const previousValue = currentValueRef.current;
+    const originalStyle = elementNode.getAttribute("style");
+    const height = elementNode.getBoundingClientRect().height || elementNode.offsetHeight;
+    const windowHeight = height > 0 ? height : undefined;
+    const wrapper = document.createElement("span");
+    const oldItem = document.createElement("span");
+    const newItem = document.createElement("span");
+    const clip = document.createElement("span");
+
+    wrapper.className = "kms-roll-stack-inline";
+    oldItem.className = "kms-roll-item-inline";
+    newItem.className = "kms-roll-item-inline";
+    clip.className = "kms-roll-clip-inline";
+
+    oldItem.textContent = previousValue;
+    newItem.textContent = value;
+
+    if (windowHeight) {
+      clip.style.height = `${windowHeight}px`;
+      oldItem.style.height = `${windowHeight}px`;
+      newItem.style.height = `${windowHeight}px`;
+    }
+
+    if (direction === "up") {
+      wrapper.append(oldItem, newItem);
+    } else {
+      wrapper.append(newItem, oldItem);
+      wrapper.style.transform = windowHeight ? `translateY(-${windowHeight}px)` : "translateY(-100%)";
+    }
+
+    clip.append(wrapper);
+    elementNode.replaceChildren(clip);
+
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = null;
+      wrapper.style.transform =
+        direction === "up" ? (windowHeight ? `translateY(-${windowHeight}px)` : "translateY(-50%)") : "translateY(0)";
+    });
+
+    timeoutRef.current = window.setTimeout(() => {
+      elementNode.textContent = value;
+      if (originalStyle === null) {
+        elementNode.removeAttribute("style");
+      } else {
+        elementNode.setAttribute("style", originalStyle);
+      }
+      currentValueRef.current = value;
+      setCurrentValue(value);
+      timeoutRef.current = null;
+    }, 640);
+
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      if (frameRef.current) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+  }, [direction, value]);
+
+  const Tag = element;
+  return <Tag className={className} ref={(node) => { elementRef.current = node; }}>{currentValue}</Tag>;
+}
+
+function resolveContentClassName(pathname: string) {
+  if (pathname === "/") {
+    return "kms-content-home";
+  }
+  if (pathname.startsWith("/qa")) {
+    return "kms-content-qa";
+  }
+  if (pathname.startsWith("/search")) {
+    return "kms-content-search";
+  }
+  if (pathname === "/repositories") {
+    return "kms-content-repositories";
+  }
+  if (/^\/repositories\/[^/]+\/notes\/[^/]+$/.test(pathname)) {
+    return "kms-content-note-read";
+  }
+  if (/^\/repositories\/[^/]+\/notes\/[^/]+\/edit$/.test(pathname)) {
+    return "kms-content-note-edit";
+  }
+  if (pathname.startsWith("/profile")) {
+    return "kms-content-profile";
+  }
+  return "kms-content-default";
+}
+
+export function AppShell({ children, currentUser }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const avatarUrl = currentUser.has_avatar_upload ? "/api/profile/avatar" : null;
+  const currentItem = resolveCurrentItem(pathname);
+  const currentIndex = Math.max(
+    0,
+    navigationItems.findIndex((item) => item.href === currentItem.href)
+  );
+  const [visualItem, setVisualItem] = useState(currentItem);
+  const [visualIndex, setVisualIndex] = useState(currentIndex);
+  const [rollDirection, setRollDirection] = useState<"up" | "down">("up");
+  const [indicatorTop, setIndicatorTop] = useState<number | null>(null);
+  const [activeDecorVisible, setActiveDecorVisible] = useState(false);
+  const [navMotion, setNavMotion] = useState<{ from: number | null; to: number | null }>({ from: null, to: null });
+  const [pagePhase, setPagePhase] = useState<"idle" | "exiting" | "entering">("entering");
+  const navItemRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const decorTimeoutRef = useRef<number | null>(null);
+  const navMotionTimeoutRef = useRef<number | null>(null);
+  const routeTimeoutRef = useRef<number | null>(null);
+  const phaseTimeoutRef = useRef<number | null>(null);
 
-  const visibleNavigationItems = navigationItems.filter((item) => {
-    if (!item.requiredRoles) return true;
-    return item.requiredRoles.some((roleCode) => currentUser.role_codes.includes(roleCode));
-  });
+  function calculateIndicatorTop(index: number, useFinalActiveLayout: boolean) {
+    const targetElement = navItemRefs.current[index];
+    const link = targetElement?.querySelector("a") as HTMLElement | null;
+    const navList = targetElement?.closest(".kms-nav-list") as HTMLElement | null;
+    if (!targetElement || !link || !navList) {
+      return null;
+    }
+
+    if (!useFinalActiveLayout) {
+      const linkRect = link.getBoundingClientRect();
+      const listRect = navList.getBoundingClientRect();
+      return linkRect.top - listRect.top + linkRect.height / 2;
+    }
+
+    const previousActiveItems = Array.from(navList.querySelectorAll("li.active"));
+    const disableTransitionStyle = document.createElement("style");
+    disableTransitionStyle.textContent = ".kms-nav-list li a { animation: none !important; transition: none !important; }";
+    document.head.appendChild(disableTransitionStyle);
+
+    previousActiveItems.forEach((element) => element.classList.remove("active"));
+    targetElement.classList.add("active");
+
+    const linkRect = link.getBoundingClientRect();
+    const listRect = navList.getBoundingClientRect();
+    const top = linkRect.top - listRect.top + linkRect.height / 2;
+
+    targetElement.classList.remove("active");
+    previousActiveItems.forEach((element) => element.classList.add("active"));
+    void document.body.offsetHeight;
+    document.head.removeChild(disableTransitionStyle);
+
+    return top;
+  }
+
+  useLayoutEffect(() => {
+    setVisualItem(currentItem);
+    setVisualIndex(currentIndex);
+  }, [currentItem, currentIndex]);
+
+  useEffect(() => {
+    navigationItems.forEach((item) => {
+      router.prefetch(item.href);
+    });
+  }, [router]);
+
+  useEffect(() => {
+    setActiveDecorVisible(false);
+    if (decorTimeoutRef.current) {
+      window.clearTimeout(decorTimeoutRef.current);
+    }
+    decorTimeoutRef.current = window.setTimeout(() => {
+      setActiveDecorVisible(true);
+      decorTimeoutRef.current = null;
+    }, 600);
+
+    return () => {
+      if (decorTimeoutRef.current) {
+        window.clearTimeout(decorTimeoutRef.current);
+        decorTimeoutRef.current = null;
+      }
+    };
+  }, [visualItem.href]);
+
+  useEffect(() => {
+    return () => {
+      if (routeTimeoutRef.current) {
+        window.clearTimeout(routeTimeoutRef.current);
+        routeTimeoutRef.current = null;
+      }
+      if (navMotionTimeoutRef.current) {
+        window.clearTimeout(navMotionTimeoutRef.current);
+        navMotionTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const nextTop = calculateIndicatorTop(visualIndex, true);
+    if (nextTop !== null) {
+      setIndicatorTop(nextTop);
+    }
+  }, [visualIndex, collapsed]);
+
+  useEffect(() => {
+    setPagePhase("entering");
+    if (phaseTimeoutRef.current) {
+      window.clearTimeout(phaseTimeoutRef.current);
+    }
+    phaseTimeoutRef.current = window.setTimeout(() => {
+      setPagePhase("idle");
+      phaseTimeoutRef.current = null;
+    }, 420);
+    return () => {
+      if (phaseTimeoutRef.current) {
+        window.clearTimeout(phaseTimeoutRef.current);
+        phaseTimeoutRef.current = null;
+      }
+    };
+  }, [pathname]);
+
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, item: NavigationItem, index: number) {
+    setMobileMenuOpen(false);
+    event.preventDefault();
+    if (pathname === item.href) {
+      return;
+    }
+
+    setRollDirection(index > visualIndex ? "up" : "down");
+    const nextTop = calculateIndicatorTop(index, true);
+    if (nextTop !== null) {
+      setIndicatorTop(nextTop);
+    }
+    if (navMotionTimeoutRef.current) {
+      window.clearTimeout(navMotionTimeoutRef.current);
+    }
+    setNavMotion({ from: visualIndex, to: index });
+    navMotionTimeoutRef.current = window.setTimeout(() => {
+      setNavMotion({ from: null, to: null });
+      navMotionTimeoutRef.current = null;
+    }, 620);
+    setVisualItem(item);
+    setVisualIndex(index);
+    setPagePhase("exiting");
+    if (routeTimeoutRef.current) {
+      window.clearTimeout(routeTimeoutRef.current);
+    }
+    routeTimeoutRef.current = window.setTimeout(() => {
+      router.push(item.href);
+      routeTimeoutRef.current = null;
+    }, 220);
+  }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-slate-50 font-sans text-slate-800">
-      {/* 移动端遮罩层 */}
-      {mobileMenuOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity lg:hidden"
+    <div className={clsx("kms-shell", collapsed && "kms-shell-collapsed", mobileMenuOpen && "kms-shell-mobile-open")}>
+      <div className="kms-bg-watermark">KNOWLEDGE</div>
+      {mobileMenuOpen ? (
+        <button
+          aria-label="关闭导航遮罩"
+          className="kms-mobile-mask"
           onClick={() => setMobileMenuOpen(false)}
+          type="button"
         />
-      )}
+      ) : null}
 
-      {/* 侧边栏 */}
-      <aside
-        className={clsx(
-          "fixed inset-y-0 left-0 z-50 flex flex-col justify-between border-r border-slate-200/60 bg-white/80 backdrop-blur-md shadow-glass transition-all duration-300 ease-in-out lg:static",
-          collapsed ? "w-[72px]" : "w-64",
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        )}
-      >
-        <div>
-          <div
-            className={clsx(
-              "mb-4 flex h-16 items-center border-b border-slate-100",
-              collapsed ? "justify-center px-0" : "px-4"
-            )}
-          >
+      <div className="kms-layout-wrapper">
+        <header className="kms-top-header">
+          <div className="kms-header-side kms-left-side">
+            <div className="kms-line-drawing kms-left-drawing">
+              <div className="kms-h-line" />
+              <div className="kms-dot" />
+              <div className="kms-d-line" />
+            </div>
+            <span className="kms-event-tag">
+              EVENT{" "}
+              <RollingText
+                className="kms-event-num"
+                direction={rollDirection}
+                value={String(visualIndex + 1).padStart(2, "0")}
+              />
+            </span>
+          </div>
+
+          <div className="kms-header-center">
+            <RollingText className="kms-main-title" direction={rollDirection} element="h1" value={visualItem.label} />
+            <div className="kms-sub-title-container">
+              <span className="kms-sub-title-lines" />
+              <div className="kms-news-pattern">
+                <RollingText className="kms-sub-title-text" direction={rollDirection} value={visualItem.en} />
+              </div>
+              <span className="kms-sub-title-lines" />
+            </div>
+            <div className="kms-center-triangle" />
+          </div>
+
+          <div className="kms-header-side kms-right-side">
+            <span className="kms-event-tag">
+              EVENT{" "}
+              <RollingText
+                className="kms-event-num"
+                direction={rollDirection}
+                value={String(visualIndex + 1).padStart(2, "0")}
+              />
+            </span>
+            <div className="kms-line-drawing kms-right-drawing">
+              <div className="kms-d-line" />
+              <div className="kms-dot" />
+              <div className="kms-h-line" />
+            </div>
+          </div>
+        </header>
+
+        <button className="kms-mobile-floating-menu" onClick={() => setMobileMenuOpen(true)} type="button">
+          <Menu className="h-5 w-5" />
+          <span>MENU</span>
+        </button>
+
+        <div className="kms-body-area">
+          <aside className="kms-sidebar">
             <button
+              className="kms-hamburger"
               onClick={() => setCollapsed((value) => !value)}
-              className="hidden rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-indigo-600 lg:block"
               title={collapsed ? "展开主菜单" : "收起主菜单"}
               type="button"
             >
-              <Menu className="h-5 w-5" />
-            </button>
-            <button
-              onClick={() => setMobileMenuOpen(false)}
-              className="lg:hidden rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-indigo-600"
-              type="button"
-            >
-              <Menu className="h-5 w-5" />
+              <span />
+              <span />
+              <span />
             </button>
 
-            {!collapsed && (
-              <a href="/repositories" className="ml-2 flex items-center overflow-hidden">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 shadow-sm">
-                  <span className="text-sm font-bold text-white">K</span>
-                </div>
-                <span className="ml-3 whitespace-nowrap text-lg font-extrabold tracking-tight text-slate-800">
-                  智库 KMS
-                </span>
-              </a>
-            )}
-          </div>
+            <nav aria-label="主导航">
+              <ul className="kms-nav-list">
+                {indicatorTop !== null ? <span className="kms-nav-indicator" style={{ top: `${indicatorTop}px` }} /> : null}
+                {navigationItems.map((item, index) => {
+                  const visualActive = visualItem.href === item.href;
+                  return (
+                    <li
+                      className={clsx(
+                        visualActive && "active",
+                        navMotion.to === index && "kms-nav-entering",
+                        navMotion.from === index && "kms-nav-leaving",
+                      )}
+                      key={item.href}
+                      ref={(element) => {
+                        navItemRefs.current[index] = element;
+                      }}
+                    >
+                      <a
+                        href={item.href}
+                        title={collapsed ? item.label : undefined}
+                        onClick={(event) => handleNavClick(event, item, index)}
+                      >
+                        <span data-en={item.en}>{item.label}</span>
+                      </a>
+                      {visualActive && activeDecorVisible ? (
+                        <div className="kms-active-decor" key={`decor-${visualItem.href}`}>
+                          <span className="kms-decor-line" />
+                          <span className="kms-decor-text">{item.en}</span>
+                          <span className="kms-decor-line" />
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+          </aside>
 
-          <nav className="space-y-1.5 px-3">
-            {visibleNavigationItems.map((item) => {
-              const Icon = item.icon;
-              const active = isActive(pathname, item.matchers);
-
-              return (
-                <a
-                  key={item.href}
-                  className={clsx(
-                    "group flex items-center rounded-xl py-3 transition-all duration-300",
-                    collapsed ? "justify-center px-0" : "px-3",
-                    active
-                      ? "bg-gradient-to-r from-indigo-50/80 to-blue-50/50 font-semibold text-indigo-700 shadow-sm"
-                      : "font-medium text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
-                  )}
-                  title={collapsed ? item.label : undefined}
-                  href={item.href}
-                >
-                  <Icon
-                    className={clsx(
-                      "h-5 w-5 transition-transform duration-300",
-                      active ? "text-indigo-600 scale-110" : "text-slate-400 group-hover:text-slate-600 group-hover:scale-110",
-                      collapsed ? "" : "mr-3"
-                    )}
-                  />
-                  {!collapsed && <span className="truncate">{item.label}</span>}
-                </a>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="flex flex-col space-y-2 border-t border-slate-100 p-4">
-          <button
-            title={collapsed ? "通知" : undefined}
-            className={clsx(
-              "relative flex items-center rounded-xl py-2 text-slate-600 transition-colors hover:bg-slate-100",
-              collapsed ? "justify-center px-0" : "px-3"
-            )}
-            type="button"
-          >
-            <Bell className={clsx("h-5 w-5", collapsed ? "" : "mr-3")} />
-            {!collapsed && <span className="truncate text-sm font-medium">通知</span>}
-            {currentUser.need_password_change ? (
-              <span
-                className={clsx(
-                  "absolute h-2 w-2 rounded-full bg-rose-500 shadow-sm",
-                  collapsed ? "right-6 top-2" : "right-3 top-2"
-                )}
-              />
-            ) : null}
-          </button>
-
-          <div className="group relative cursor-pointer">
+          <main className="kms-main-content">
+            <div className="sr-only">
+              <h1>{currentItem.label}</h1>
+              <p>企业知识管理系统用户侧页面</p>
+            </div>
             <div
               className={clsx(
-                "flex items-center rounded-xl py-2 transition-colors hover:bg-slate-100",
-                collapsed ? "justify-center px-0" : "px-3"
+                "kms-content-scroll custom-scrollbar",
+                resolveContentClassName(pathname),
+                `kms-page-${pagePhase}`,
               )}
             >
-              <div
-                className={clsx(
-                  "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-indigo-500 to-blue-600 font-bold text-white shadow-sm ring-2 ring-white",
-                  collapsed ? "" : "mr-3"
-                )}
-              >
-                {avatarUrl ? (
-                  <img alt={`${currentUser.full_name} avatar`} className="h-full w-full rounded-full object-cover" src={avatarUrl} />
-                ) : (
-                  currentUser.full_name.slice(0, 1)
-                )}
-              </div>
-              {!collapsed && (
-                <div className="flex-1 overflow-hidden">
-                  <p className="truncate text-sm font-bold text-slate-800">{currentUser.full_name}</p>
-                  <p className="truncate text-xs font-medium text-slate-500">{currentUser.username}</p>
-                </div>
-              )}
+              {children}
             </div>
+          </main>
+        </div>
 
-            <div
-              className={clsx(
-                "invisible absolute z-50 w-56 rounded-2xl border border-slate-100/50 bg-white/95 backdrop-blur-md opacity-0 shadow-floating transition-all duration-300 group-hover:visible group-hover:opacity-100",
-                collapsed ? "bottom-0 left-full ml-3" : "bottom-full left-0 mb-3"
-              )}
-            >
-              <div className="border-b border-slate-100/60 p-4">
-                <p className="text-sm font-bold text-slate-800">{currentUser.full_name}</p>
-                <p className="truncate text-xs font-medium text-slate-500">{currentUser.email}</p>
-              </div>
-              <div className="space-y-1 p-2">
-                <MenuButton icon={<User className="h-4 w-4" />} label="个人中心" href="/profile" />
-                {currentUser.role_codes.includes("admin") ? (
-                  <MenuButton icon={<Settings className="h-4 w-4" />} label="后台系统" href="/admin" />
-                ) : null}
-                <MenuButton icon={<Info className="h-4 w-4" />} label={`密级 L${currentUser.clearance_level}`} />
-              </div>
-              <div className="border-t border-slate-100/60 p-2">
-                <MenuButton
-                  className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                  href="/logout"
-                  icon={<LogOut className="h-4 w-4" />}
-                  label="退出登录"
-                />
-              </div>
+        <footer className="kms-bottom-footer">
+          <div className="kms-footer-left">
+            <span className="kms-arrows">▶ ▶ ▶</span>
+            <span className="kms-force-text">KNOWLEDGE FORCE</span>
+            <div className="kms-footer-line" />
+          </div>
+          <div className="kms-footer-center">
+            <div className="kms-caution-wrapper">
+              <span className="kms-caution-text">CAUTION</span>
+              <svg className="kms-caution-triangle" viewBox="0 0 88 64" aria-hidden="true">
+                <path d="M2 2 H86 L44 62 Z" />
+              </svg>
             </div>
           </div>
-        </div>
-      </aside>
-
-      {/* 主内容区 */}
-      <main className="relative flex flex-1 flex-col overflow-hidden bg-slate-50">
-        {/* 移动端顶栏 */}
-        <div className="flex h-16 flex-shrink-0 items-center justify-between border-b border-slate-200/60 bg-white/80 px-4 backdrop-blur-md lg:hidden">
-          <div className="flex items-center">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 shadow-sm">
-              <span className="text-sm font-bold text-white">K</span>
-            </div>
-            <span className="ml-3 text-lg font-extrabold tracking-tight text-slate-800">
-              智库 KMS
-            </span>
+          <div className="kms-footer-right">
+            <div className="kms-footer-line" />
+            <div className="kms-slashes">////////</div>
+            <div className="kms-corner-shape" />
           </div>
-          <button
-            onClick={() => setMobileMenuOpen(true)}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-indigo-600"
-            type="button"
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-        </div>
-
-        <div className="sr-only">
-          <h1>{title}</h1>
-          <p>{description}</p>
-        </div>
-        <div className={clsx("flex-1 overflow-auto custom-scrollbar relative", contentClassName ?? "p-4 lg:p-8")}>{children}</div>
-      </main>
+        </footer>
+      </div>
     </div>
   );
-}
-
-type MenuButtonProps = {
-  icon: ReactNode;
-  label: string;
-  href?: string;
-  className?: string;
-};
-
-function MenuButton({ icon, label, href, className }: MenuButtonProps) {
-  const content = (
-    <div
-      className={clsx(
-        "flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-300",
-        className ?? "text-slate-700 hover:bg-slate-50 hover:text-indigo-600"
-      )}
-    >
-      <span className="mr-3 opacity-80">{icon}</span>
-      <span>{label}</span>
-    </div>
-  );
-
-  if (href) {
-    return <a href={href}>{content}</a>;
-  }
-
-  return <button type="button" className="w-full text-left">{content}</button>;
 }

@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import quote
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
@@ -31,8 +31,9 @@ from app.services.content_cleanup import (
     collect_descendant_folder_ids,
     collect_note_cleanup_payload,
 )
-from app.services.search import index_note
-from app.services.ingestion import extract_attachment_text, upsert_attachment_text
+from app.services.note_indexing import enqueue_note_index
+from app.services.markdown import resolve_note_body
+from app.services.attachment_ingestion import enqueue_attachment_ingestion
 from app.services.storage import (
     build_attachment_object_key,
     get_object_bytes,
@@ -205,6 +206,7 @@ def update_note(
     repository_slug: str,
     note_id: int,
     payload: NoteUpdateRequest,
+    background_tasks: BackgroundTasks,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> NoteDetailResponse:
@@ -222,25 +224,34 @@ def update_note(
 
     if note.min_clearance_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+    _ensure_can_modify_note(user, note)
+
+    content_markdown, content_text = resolve_note_body(
+        content_markdown=payload.content_markdown,
+        content_text=payload.content_text,
+    )
 
     note.title = payload.title.strip()
-    note.content_text = payload.content_text.strip()
+    note.content_markdown = content_markdown
+    note.content_text = content_text
     note.content_json = payload.content_json.strip() if payload.content_json else json.dumps(
         {
             "type": "doc",
             "content": [
                 {
                     "type": "paragraph",
-                    "content": [{"type": "text", "text": note.content_text}],
+                    "content": [{"type": "text", "text": note.content_text}] if note.content_text else [],
                 }
             ],
         },
         ensure_ascii=False,
     )
+    if payload.editable_by_clearance is not None and _is_note_creator(user, note):
+        note.editable_by_clearance = payload.editable_by_clearance
     db.add(note)
     db.commit()
     db.refresh(note)
-    index_note(db, note.id)
+    enqueue_note_index(background_tasks, db, note.id)
 
     db.refresh(note)
     return _serialize_note_detail(_load_note_detail(db, note.id), user)
@@ -250,6 +261,7 @@ def update_note(
 def create_note_user(
     repository_slug: str,
     payload: NoteCreateRequest,
+    background_tasks: BackgroundTasks,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> NoteDetailResponse:
@@ -282,7 +294,10 @@ def create_note_user(
     if desired_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clearance insufficient for this note.")
 
-    content_text = (payload.content_text or "").strip()
+    content_markdown, content_text = resolve_note_body(
+        content_markdown=payload.content_markdown,
+        content_text=payload.content_text,
+    )
     if payload.content_json and payload.content_json.strip():
         content_json = payload.content_json.strip()
     else:
@@ -300,12 +315,14 @@ def create_note_user(
         author_name=(user.full_name or user.username).strip() or "系统",
         content_text=content_text,
         content_json=content_json,
+        content_markdown=content_markdown,
         min_clearance_level=desired_level,
+        editable_by_clearance=payload.editable_by_clearance,
     )
     db.add(note)
     db.commit()
     db.refresh(note)
-    index_note(db, note.id)
+    enqueue_note_index(background_tasks, db, note.id)
 
     return _serialize_note_detail(_load_note_detail(db, note.id), user)
 
@@ -313,6 +330,33 @@ class FolderCreateRequest(BaseModel):
     name: str
     parent_id: int | None = None
     min_clearance_level: int | None = None
+
+
+class NoteIndexStatusResponse(BaseModel):
+    note_id: int
+    status: str
+    error: str | None = None
+    indexed_at: str | None = None
+
+
+@router.get("/{repository_slug}/notes/{note_id}/index-status", response_model=NoteIndexStatusResponse)
+def get_note_index_status(
+    repository_slug: str,
+    note_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> NoteIndexStatusResponse:
+    repository, note = _get_repository_and_note(db, repository_slug, note_id)
+    if repository.min_clearance_level > user.clearance_level or note.min_clearance_level > user.clearance_level:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+
+    return NoteIndexStatusResponse(
+        note_id=note.id,
+        status=note.search_index_status or "indexed",
+        error=note.search_index_error or None,
+        indexed_at=note.search_indexed_at.isoformat() if note.search_indexed_at else None,
+    )
+
 
 @router.post("/{repository_slug}/folders", response_model=FolderItem, status_code=status.HTTP_201_CREATED)
 def create_folder_user(
@@ -560,6 +604,7 @@ async def upload_attachment(
 
     if note.min_clearance_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+    _ensure_can_modify_note(user, note)
 
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Attachment file name is required.")
@@ -595,9 +640,7 @@ async def upload_attachment(
     db.commit()
     db.refresh(attachment)
 
-    extracted_text = extract_attachment_text(file.filename, file_bytes)
-    upsert_attachment_text(db, attachment, extracted_text)
-    index_note(db, note.id)
+    enqueue_attachment_ingestion(db, note_id=note.id, attachment_id=attachment.id)
 
     return _serialize_attachment(attachment)
 
@@ -677,12 +720,14 @@ def delete_attachment(
     repository_slug: str,
     note_id: int,
     attachment_id: int,
+    background_tasks: BackgroundTasks,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     _, note = _get_repository_and_note(db, repository_slug, note_id)
     if note.min_clearance_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+    _ensure_can_modify_note(user, note)
 
     attachment = (
         db.query(Attachment)
@@ -697,7 +742,7 @@ def delete_attachment(
     db.delete(attachment)
     db.commit()
     remove_object(object_key)
-    index_note(db, note.id)
+    enqueue_note_index(background_tasks, db, note.id)
 
 
 @router.put("/{repository_slug}/notes/{note_id}/attachments/{attachment_id}", response_model=AttachmentItem)
@@ -712,6 +757,7 @@ async def replace_attachment(
     _, note = _get_repository_and_note(db, repository_slug, note_id)
     if note.min_clearance_level > user.clearance_level:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note access denied.")
+    _ensure_can_modify_note(user, note)
 
     attachment = (
         db.query(Attachment)
@@ -755,11 +801,12 @@ async def replace_attachment(
     db.commit()
     db.refresh(attachment)
 
-    extracted_text = extract_attachment_text(file.filename, file_bytes)
-    upsert_attachment_text(db, attachment, extracted_text)
-    index_note(db, note.id)
-
-    remove_object(old_object_key)
+    enqueue_attachment_ingestion(
+        db,
+        note_id=note.id,
+        attachment_id=attachment.id,
+        old_object_key=old_object_key,
+    )
     return _serialize_attachment(attachment)
 
 
@@ -779,13 +826,19 @@ def _serialize_note_list_item(note: Note, user: User) -> NoteListItem:
         id=note.id,
         title=note.title,
         folder_id=note.folder_id,
+        content_text=note.content_text or "",
         author_name=(note.author_name or "").strip() or "系统",
         author_user_id=note.author_user_id,
         clearance_level=note.min_clearance_level,
         created_at=note.created_at.isoformat(),
         updated_at=note.updated_at.isoformat(),
+        editable_by_clearance=bool(note.editable_by_clearance),
+        can_edit=_can_modify_note(user, note),
         attachment_count=len(note.attachments),
         can_delete=_can_delete_note(user, note),
+        search_index_status=note.search_index_status or "indexed",
+        search_index_error=note.search_index_error or None,
+        search_indexed_at=note.search_indexed_at.isoformat() if note.search_indexed_at else None,
     )
 
 
@@ -801,11 +854,18 @@ def _serialize_note_detail(note: Note, user: User) -> NoteDetailResponse:
         title=note.title,
         author_name=(note.author_name or "").strip() or "系统",
         author_user_id=note.author_user_id,
+        content_markdown=note.content_markdown or "",
         content_json=note.content_json,
         content_text=note.content_text,
         clearance_level=note.min_clearance_level,
         updated_at=note.updated_at.isoformat(),
+        editable_by_clearance=bool(note.editable_by_clearance),
+        can_edit=_can_modify_note(user, note),
+        can_change_edit_policy=_is_note_creator(user, note),
         can_delete=_can_delete_note(user, note),
+        search_index_status=note.search_index_status or "indexed",
+        search_index_error=note.search_index_error or None,
+        search_indexed_at=note.search_indexed_at.isoformat() if note.search_indexed_at else None,
         like_count=len(note.likes),
         liked_by_me=any(like.user_id == user.id for like in note.likes),
         favorite_count=len(note.favorites),
@@ -908,6 +968,35 @@ def _can_delete_note(user: User, note: Note) -> bool:
     return normalized_author in candidate_names
 
 
+def _is_note_creator(user: User, note: Note) -> bool:
+    if note.author_user_id is not None:
+        return note.author_user_id == user.id
+    normalized_author = (note.author_name or "").strip()
+    if not normalized_author:
+        return False
+    candidate_names = {
+        value.strip()
+        for value in (user.full_name, user.username)
+        if value and value.strip()
+    }
+    return normalized_author in candidate_names
+
+
+def _can_modify_note(user: User, note: Note) -> bool:
+    if _is_admin_user(user):
+        return True
+    if note.min_clearance_level > user.clearance_level:
+        return False
+    if _is_note_creator(user, note):
+        return True
+    return bool(note.editable_by_clearance)
+
+
 def _ensure_can_delete_note(user: User, note: Note) -> None:
     if not _can_delete_note(user, note):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note delete denied.")
+
+
+def _ensure_can_modify_note(user: User, note: Note) -> None:
+    if not _can_modify_note(user, note):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Note modify denied.")

@@ -22,9 +22,9 @@ export function AdminPageSection({
   return (
     <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div>
-        {eyebrow ? <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">{eyebrow}</p> : null}
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{title}</h1>
-        {description ? <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p> : null}
+        {eyebrow ? <p className="text-xs font-semibold uppercase tracking-[0.24em] text-red-500">{eyebrow}</p> : null}
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">{title}</h1>
+        {description ? <p className="mt-2 text-sm leading-6 text-white/48">{description}</p> : null}
       </div>
       {action ? <div className="flex items-center gap-3">{action}</div> : null}
     </div>
@@ -32,7 +32,7 @@ export function AdminPageSection({
 }
 
 export function AdminCard({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-3xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</section>;
+  return <section className={`rounded-none border border-white/10 bg-white/[0.045] shadow-[0_24px_70px_rgba(0,0,0,0.28)] backdrop-blur-sm ${className}`}>{children}</section>;
 }
 
 export function AdminMetric({
@@ -46,9 +46,9 @@ export function AdminMetric({
 }) {
   return (
     <AdminCard className="p-5">
-      <p className="text-sm font-medium text-slate-500">{label}</p>
-      <p className="mt-4 text-3xl font-bold tracking-tight text-slate-900">{value}</p>
-      {hint ? <p className="mt-2 text-xs text-slate-400">{hint}</p> : null}
+      <p className="text-sm font-medium text-white/48">{label}</p>
+      <p className="mt-4 text-3xl font-bold tracking-tight text-white">{value}</p>
+      {hint ? <p className="mt-2 text-xs text-white/35">{hint}</p> : null}
     </AdminCard>
   );
 }
@@ -69,16 +69,16 @@ export function AdminModal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-5xl rounded-3xl bg-white shadow-[0_32px_80px_rgba(15,23,42,0.22)]">
-        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-5xl border border-white/12 bg-[#090b10] shadow-[0_32px_90px_rgba(0,0,0,0.55)]">
+        <div className="flex items-start justify-between border-b border-white/10 px-6 py-5">
           <div>
-            <h2 className="text-2xl font-semibold text-slate-900">{title}</h2>
-            {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+            <h2 className="text-2xl font-semibold text-white">{title}</h2>
+            {description ? <p className="mt-1 text-sm text-white/45">{description}</p> : null}
           </div>
           <Link
             href={closeHref}
-            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="border border-white/12 p-2 text-white/45 transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-white"
           >
             <X className="h-5 w-5" />
           </Link>
@@ -90,14 +90,14 @@ export function AdminModal({
 }
 
 export function AdminFieldLabel({ children }: { children: ReactNode }) {
-  return <label className="mb-2 block text-sm font-medium text-slate-700">{children}</label>;
+  return <label className="mb-2 block text-sm font-medium text-white/62">{children}</label>;
 }
 
 export function AdminInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition-all placeholder:text-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 ${props.className ?? ""}`}
+      className={`h-11 w-full rounded-none border border-white/12 bg-black/25 px-4 text-sm text-white outline-none transition-all placeholder:text-white/25 focus:border-red-500/60 focus:ring-4 focus:ring-red-500/10 ${props.className ?? ""}`}
     />
   );
 }
@@ -106,7 +106,7 @@ export function AdminSelect(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-800 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 ${props.className ?? ""}`}
+      className={`h-11 w-full rounded-none border border-white/12 bg-black/25 px-4 text-sm text-white outline-none transition-all focus:border-red-500/60 focus:ring-4 focus:ring-red-500/10 ${props.className ?? ""}`}
     />
   );
 }
@@ -115,7 +115,7 @@ export function AdminTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>
   return (
     <textarea
       {...props}
-      className={`w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition-all placeholder:text-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 ${props.className ?? ""}`}
+      className={`w-full rounded-none border border-white/12 bg-black/25 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-white/25 focus:border-red-500/60 focus:ring-4 focus:ring-red-500/10 ${props.className ?? ""}`}
     />
   );
 }
@@ -130,7 +130,7 @@ export function AdminPrimaryButton({
     <button
       {...rest}
       type={type}
-      className={`inline-flex h-11 items-center justify-center rounded-xl bg-[#5D6BFF] px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#5360EF] disabled:cursor-not-allowed disabled:bg-slate-300 ${className}`}
+      className={`inline-flex h-11 items-center justify-center rounded-none border border-red-500/40 bg-red-600 px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/10 ${className}`}
     >
       {children}
     </button>
@@ -147,7 +147,7 @@ export function AdminSecondaryButton({
     <button
       {...rest}
       type={type}
-      className={`inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 ${className}`}
+      className={`inline-flex h-11 items-center justify-center rounded-none border border-white/15 bg-white/[0.04] px-5 text-sm font-medium text-white/75 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white ${className}`}
     >
       {children}
     </button>
@@ -164,7 +164,7 @@ export function AdminDangerButton({
     <button
       {...rest}
       type={type}
-      className={`inline-flex h-9 items-center justify-center rounded-lg border border-red-100 bg-white px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 ${className}`}
+      className={`inline-flex h-9 items-center justify-center rounded-none border border-red-500/35 bg-red-500/10 px-3 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/20 hover:text-white ${className}`}
     >
       {children}
     </button>

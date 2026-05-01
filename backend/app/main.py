@@ -51,7 +51,7 @@ async def lifespan(_: FastAPI):
     try:
         sync_all_notes(db)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Unable to sync notes into Elasticsearch during startup: %s", exc)
+        logger.warning("Unable to sync notes into search/vector stores during startup: %s", exc)
     finally:
         db.close()
     yield

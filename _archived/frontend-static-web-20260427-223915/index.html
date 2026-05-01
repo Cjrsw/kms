@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNS News Clone - True Layout</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts for typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Oswald:wght@400;500;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Large background watermark -->
+    <div class="bg-watermark">PUNISHING</div>
+
+    <div class="layout-wrapper">
+
+        <!-- TOP HEADER -->
+        <header class="top-header">
+            <div class="header-side left-side">
+                <div class="line-drawing left-drawing">
+                    <div class="h-line"></div>
+                    <div class="dot"></div>
+                    <div class="d-line"></div>
+                </div>
+                <span class="event-tag">EVENT <span class="event-num">01</span></span>
+            </div>
+
+            <div class="header-center">
+                <h1 class="main-title">新闻资讯</h1>
+                <div class="sub-title-container">
+                    <span class="sub-title-lines"></span>
+                    <div class="news-pattern">
+                        <span class="sub-title-text">NEWS</span>
+                    </div>
+                    <span class="sub-title-lines"></span>
+                </div>
+                <div class="center-triangle"></div>
+            </div>
+
+            <div class="header-side right-side">
+                <span class="event-tag">EVENT <span class="event-num">01</span></span>
+                <div class="line-drawing right-drawing">
+                    <div class="d-line"></div>
+                    <div class="dot"></div>
+                    <div class="h-line"></div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Body Area -->
+        <div class="body-area">
+
+            <!-- Left Sidebar -->
+            <aside class="sidebar">
+                <div class="hamburger">
+                    <span></span><span></span><span></span>
+                </div>
+                <ul class="nav-list">
+                    <li class="active">
+                        <a href="#" data-en="HOME">首页</a>
+                        <div class="active-decor animate">
+                            <span class="decor-line left-line"></span>
+                            <span class="decor-text">HOME</span>
+                            <span class="decor-line right-line"></span>
+                        </div>
+                    </li>
+                    <li><a href="#" data-en="REPOSITORY">知识仓库</a></li>
+                    <li><a href="#" data-en="SEARCH">全文检索</a></li>
+                    <li><a href="#" data-en="Q&A">知识问答</a></li>
+                    <li><a href="#" data-en="PROFILE">个人中心</a></li>
+                </ul>
+            </aside>
+
+            <!-- Main Content Area -->
+            <main class="main-content">
+
+                <!-- Page View: Home -->
+                <div class="page-view active" id="view-home">
+                    <!-- Left Section: Carousel -->
+                    <section class="carousel-section">
+                    <div class="carousel-header">
+                        <span class="slide-current">01</span><span class="slide-total"> /03//</span>
+                    </div>
+
+                    <div class="carousel-container">
+                        <div class="carousel-track">
+                            <div class="carousel-slide" style="background-color: #e0e0e0;"></div>
+                            <div class="carousel-slide" style="background-color: #888888;"></div>
+                            <div class="carousel-slide" style="background-color: #333333;"></div>
+                        </div>
+                    </div>
+
+                    <div class="carousel-footer">
+                        <div class="footer-line"></div>
+                        <div class="carousel-indicators">
+                            <div class="square active"></div>
+                            <div class="square"></div>
+                            <div class="square"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Vertical Divider -->
+                <div class="vertical-divider">
+                    <div class="divider-line"></div>
+                </div>
+
+                <!-- Right Section: News List -->
+                <section class="news-section">
+                    <header class="news-tabs">
+                        <div class="tab active">
+                            <div class="tab-indicator">
+                                <span class="arrow">➔</span><span class="number">01</span>
+                            </div>
+                            <span class="tab-text">最新</span>
+                        </div>
+                        <div class="tab"><span class="tab-text">新闻</span></div>
+                        <div class="tab"><span class="tab-text">公告</span></div>
+                        <div class="tab"><span class="tab-text">活动</span></div>
+                    </header>
+
+                    <ul class="news-list">
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《战双帕弥什》新版本「烈日将熄」PV公开</span>
+                            </div>
+                            <span class="news-date">2026-04-17</span>
+                        </li>
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《烈日将熄》版本更新公告</span>
+                            </div>
+                            <span class="news-date">2026-04-17</span>
+                        </li>
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《战双帕弥什》更美好的明天版本一览</span>
+                            </div>
+                            <span class="news-date">2026-03-30</span>
+                        </li>
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《战双帕弥什》账号转服常见问题</span>
+                            </div>
+                            <span class="news-date">2026-03-30</span>
+                        </li>
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《战双帕弥什》抖音联运停运公告</span>
+                            </div>
+                            <span class="news-date">2026-03-25</span>
+                        </li>
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《更美好的明天》版本更新公告</span>
+                            </div>
+                            <span class="news-date">2026-03-13</span>
+                        </li>
+                        <li>
+                            <div class="news-content">
+                                <span class="news-tag">【最新】</span>
+                                <span class="news-title">《战双帕弥什》新版本「更美好的明天」PV公开</span>
+                            </div>
+                            <span class="news-date">2026-03-10</span>
+                        </li>
+                    </ul>
+
+                    <div class="more-container">
+                        <button class="more-btn">MORE <b>+</b></button>
+                    </div>
+                </section>
+                </div> <!-- End view-home -->
+
+                <!-- Page View: Repository -->
+                <div class="page-view" id="view-repository">
+                    <div class="repo-viewport">
+                    <div class="repo-carousel">
+                        <div class="repo-controls">
+                            <span class="repo-page-indicator">01 / 02</span>
+                        </div>
+                        
+                        <!-- Floating Navigation Buttons -->
+                        <button class="repo-btn prev-btn">《</button>
+                        <button class="repo-btn next-btn">》</button>
+                        
+                        <div class="repo-carousel-container">
+                            <div class="repo-track">
+                                <!-- PAGE 1 -->
+                                <div class="repo-page">
+                                    <div class="repo-grid">
+                                        <!-- Card 1 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">01</div>
+                                            <div class="card-header">
+                                                <span class="card-title">架构与设计</span>
+                                                <span class="card-en">ARCHITECTURE</span>
+                                            </div>
+                                            <div class="card-desc">系统架构图、数据库设计与核心技术选型文档归档。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                        
+                                        <!-- Card 2 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">02</div>
+                                            <div class="card-header">
+                                                <span class="card-title">产品文档</span>
+                                                <span class="card-en">PRODUCT SPECS</span>
+                                            </div>
+                                            <div class="card-desc">PRD、需求池管理与原型设计稿版本控制。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+
+                                        <!-- Card 3 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">03</div>
+                                            <div class="card-header">
+                                                <span class="card-title">操作手册</span>
+                                                <span class="card-en">OPERATION MANUAL</span>
+                                            </div>
+                                            <div class="card-desc">系统使用教程、权限配置与常见问题答疑记录。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+
+                                        <!-- Card 4 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">04</div>
+                                            <div class="card-header">
+                                                <span class="card-title">API开发文档</span>
+                                                <span class="card-en">API DOCS</span>
+                                            </div>
+                                            <div class="card-desc">前后端接口规范、错误码说明与联调测试日志。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+
+                                        <!-- Card 5 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">05</div>
+                                            <div class="card-header">
+                                                <span class="card-title">部署规约</span>
+                                                <span class="card-en">DEPLOYMENT</span>
+                                            </div>
+                                            <div class="card-desc">CI/CD流程规范、服务器环境配置与发布回滚指南。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+
+                                        <!-- Card 6 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">06</div>
+                                            <div class="card-header">
+                                                <span class="card-title">测试报告</span>
+                                                <span class="card-en">TEST REPORTS</span>
+                                            </div>
+                                            <div class="card-desc">自动化测试结果、性能压测报告与漏洞修复追踪。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- PAGE 2 -->
+                                <div class="repo-page">
+                                    <div class="repo-grid">
+                                        <!-- Card 7 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">07</div>
+                                            <div class="card-header">
+                                                <span class="card-title">安全合规</span>
+                                                <span class="card-en">SECURITY</span>
+                                            </div>
+                                            <div class="card-desc">系统安全审计记录、数据脱敏规范及等保合规材料。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                        
+                                        <!-- Card 8 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">08</div>
+                                            <div class="card-header">
+                                                <span class="card-title">UI/UX规范</span>
+                                                <span class="card-en">DESIGN SYSTEM</span>
+                                            </div>
+                                            <div class="card-desc">全局设计系统组件库、交互规范及字体颜色标记集。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+
+                                        <!-- Card 9 -->
+                                        <div class="repo-card">
+                                            <div class="card-bg-number">09</div>
+                                            <div class="card-header">
+                                                <span class="card-title">项目复盘</span>
+                                                <span class="card-en">POST MORTEM</span>
+                                            </div>
+                                            <div class="card-desc">历次重大迭代复盘记录、事故分析与改进措施。</div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                        
+                                        <!-- Empty fillers -->
+                                        <div class="repo-card" style="opacity: 0.2; pointer-events: none;">
+                                            <div class="card-bg-number">10</div>
+                                            <div class="card-header"><span class="card-title">暂无内容</span></div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                        <div class="repo-card" style="opacity: 0.2; pointer-events: none;">
+                                            <div class="card-bg-number">11</div>
+                                            <div class="card-header"><span class="card-title">暂无内容</span></div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                        <div class="repo-card" style="opacity: 0.2; pointer-events: none;">
+                                            <div class="card-bg-number">12</div>
+                                            <div class="card-header"><span class="card-title">暂无内容</span></div>
+                                            <div class="card-bottom-line"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                            </div>
+                        </div>
+
+                    </div>
+
+                        <!-- RIGHT SIDE: REPO DETAIL VIEW -->
+                        <div class="repo-detail-layout">
+                            <!-- Left: Directory Tree -->
+                            <div class="repo-detail-sidebar">
+                                <div class="tree-header">
+                                    <button class="cyber-btn repo-back-btn">&lt; BACK</button>
+                                    <div class="tree-title">目录结构</div>
+                                </div>
+                                <div class="tree-content">
+                                    <!-- Directory Tree Nodes -->
+                                    <div class="tree-node expanded">
+                                        <div class="node-label">
+                                            <span class="node-icon">[-]</span>
+                                            <span class="node-text">系统架构设计</span>
+                                            <div class="node-actions">
+                                                <button class="node-btn" title="新建目录">+DIR</button>
+                                                <button class="node-btn" title="新建笔记">+NOTE</button>
+                                            </div>
+                                        </div>
+                                        <div class="node-children">
+                                            <div class="tree-node">
+                                                <div class="node-label">
+                                                    <span class="node-icon">[+]</span>
+                                                    <span class="node-text">前端架构 (Frontend)</span>
+                                                </div>
+                                            </div>
+                                            <div class="tree-node expanded">
+                                                <div class="node-label active">
+                                                    <span class="node-icon">[-]</span>
+                                                    <span class="node-text">后端微服务 (Backend)</span>
+                                                    <div class="node-actions">
+                                                        <button class="node-btn">+DIR</button>
+                                                        <button class="node-btn">+NOTE</button>
+                                                    </div>
+                                                </div>
+                                                <div class="node-children">
+                                                    <div class="tree-node">
+                                                        <div class="node-label">
+                                                            <span class="node-icon">■</span>
+                                                            <span class="node-text">网关配置中心</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="tree-node">
+                                                        <div class="node-label">
+                                                            <span class="node-icon">■</span>
+                                                            <span class="node-text">分布式事务方案</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="tree-node">
+                                                <div class="node-label">
+                                                    <span class="node-icon">[+]</span>
+                                                    <span class="node-text">数据库架构 (DB)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Right: Notes List -->
+                            <div class="repo-detail-main">
+                                <div class="notes-header">
+                                    <div class="notes-breadcrumb">REPO // 系统架构设计 / 后端微服务 /</div>
+                                    <button class="cyber-btn new-note-btn">+ NEW NOTE</button>
+                                </div>
+                                <div class="notes-list-container">
+                                    <div class="search-result-item note-card">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">高并发下的分布式事务架构剖析</div>
+                                            <div class="result-desc">在应对双十一级别的高并发访问时，传统的强一致性事务已无法满足性能要求，我们采用了基于消息队列的最终一致性架构设计。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">已发布</span>
+                                                <span class="result-date">更新于 2026-04-18</span>
+                                                <span class="result-author">@架构组</span>
+                                            </div>
+                                        </div>
+                                        <div class="note-actions">
+                                            <button class="profile-action-btn">READ</button>
+                                            <button class="profile-action-btn">EDIT</button>
+                                        </div>
+                                    </div>
+                                    <div class="search-result-item note-card">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">配置中心高可用方案调研</div>
+                                            <div class="result-desc">对比 Apollo 与 Nacos，决定采用 Nacos 作为微服务集群的配置中心，支持动态下发与历史版本回滚。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag" style="border-color: var(--accent-red); color: var(--accent-red);">草稿</span>
+                                                <span class="result-date">更新于 2026-04-20</span>
+                                                <span class="result-author">@系统开发组</span>
+                                            </div>
+                                        </div>
+                                        <div class="note-actions">
+                                            <button class="profile-action-btn">READ</button>
+                                            <button class="profile-action-btn">EDIT</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div> <!-- End repo-viewport -->
+                </div> <!-- End view-repository -->
+
+                <!-- Page View: Search -->
+                <div class="page-view" id="view-search">
+                    <div class="search-layout">
+                        
+                        <!-- LEFT SIDE: FILTER PANEL -->
+                        <aside class="search-sidebar">
+                            
+                            <!-- 1. 知识仓库 -->
+                            <div class="filter-group">
+                                <div class="filter-group-title">
+                                    <span class="title-icon"></span>知识仓库
+                                </div>
+                                <select class="cyber-select">
+                                    <option value="all">全部分类</option>
+                                    <option value="arch">架构与设计</option>
+                                    <option value="prd">产品文档</option>
+                                    <option value="api">API开发文档</option>
+                                </select>
+                            </div>
+
+                            <!-- 2. 文档类型 -->
+                            <div class="filter-group">
+                                <div class="filter-group-title">
+                                    <span class="title-icon"></span>文档类型
+                                </div>
+                                <select class="cyber-select">
+                                    <option value="all">不限类型</option>
+                                    <option value="pdf">PDF 稳态文档</option>
+                                    <option value="markdown">Markdown 动态文档</option>
+                                    <option value="word">Word 办公文档</option>
+                                </select>
+                            </div>
+
+                            <!-- 3. 贡献者 -->
+                            <div class="filter-group">
+                                <div class="filter-group-title">
+                                    <span class="title-icon"></span>贡献者
+                                </div>
+                                <input type="text" class="cyber-input" placeholder="输入人名或拼音">
+                            </div>
+
+                            <!-- 4. 修改时间 -->
+                            <div class="filter-group">
+                                <div class="filter-group-title">
+                                    <span class="title-icon"></span>修改时间
+                                </div>
+                                <div class="date-range">
+                                    <input type="date" class="cyber-input">
+                                    <span class="date-separator"></span>
+                                    <input type="date" class="cyber-input">
+                                </div>
+                            </div>
+
+                            <!-- 5. 结果排序 -->
+                            <div class="filter-group">
+                                <div class="filter-group-title">
+                                    <span class="title-icon"></span>结果排序
+                                </div>
+                                <select class="cyber-select">
+                                    <option value="relevance">综合相关度优先</option>
+                                    <option value="time_desc">最新修改优先</option>
+                                    <option value="time_asc">最早修改优先</option>
+                                </select>
+                            </div>
+
+                            <!-- 6. 每页展示 -->
+                            <div class="filter-group">
+                                <div class="filter-group-title">
+                                    <span class="title-icon"></span>每页展示
+                                </div>
+                                <select class="cyber-select">
+                                    <option value="10">10 条 / 页</option>
+                                    <option value="20">20 条 / 页</option>
+                                    <option value="50">50 条 / 页</option>
+                                </select>
+                            </div>
+
+                            <button class="cyber-btn filter-apply-btn">应用当前筛选条件</button>
+
+                        </aside>
+
+                        <!-- RIGHT SIDE: SEARCH BAR & RESULTS -->
+                        <div class="search-main">
+                            
+                            <!-- Search Header & Input -->
+                            <div class="search-header-module">
+                                <div class="search-title-en">GLOBAL SEARCH //</div>
+                                <div class="search-box">
+                                    <input type="text" class="search-input" placeholder="输入关键字进行全库检索..." value="系统架构">
+                                    <button class="search-btn">
+                                        <span class="btn-text">检索</span>
+                                        <span class="btn-icon">///</span>
+                                    </button>
+                                    <div class="search-energy-line"></div>
+                                </div>
+                            </div>
+
+                            <!-- Search Results -->
+                            <div class="search-results-wrapper">
+                                <div class="search-meta">
+                                    <span>检索到 7 条与 "系统架构" 相关的结果</span>
+                                    <span class="time-cost">耗时: 0.12s</span>
+                                </div>
+
+                                <ul class="search-results-list">
+                                    <!-- Result 1 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">KMS <span class="highlight">系统架构</span> 设计与演进 (v2.0)</div>
+                                            <div class="result-desc">本文档详细阐述了新一代企业知识管理系统的底层逻辑，包括多视图控制器设计、检索服务（Elasticsearch）的<span class="highlight">系统架构</span>集成，以及赛博朋克前端UI的组件化拆分原则。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">架构与设计</span>
+                                                <span class="result-date">更新于 2026-04-26</span>
+                                                <span class="result-author">@系统架构师</span>
+                                            </div>
+                                        </div>
+                                    </li>
+
+                                    <!-- Result 2 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">微服务<span class="highlight">系统架构</span>拆分规范</div>
+                                            <div class="result-desc">针对旧版单体应用的解耦指南，定义了网关路由规则、RPC服务调用约定，以及日志追踪模块在整个分布式<span class="highlight">系统架构</span>中的部署位置。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">架构与设计</span>
+                                                <span class="result-date">更新于 2026-03-15</span>
+                                                <span class="result-author">@研发部</span>
+                                            </div>
+                                        </div>
+                                    </li>
+
+                                    <!-- Result 3 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">前端性能优化与<span class="highlight">系统架构</span>调整报告</div>
+                                            <div class="result-desc">通过引入纯粹的CSS Grid和原生的动画过渡，剔除第三方框架，精简DOM层级，大幅降低了重绘成本，是对前端<span class="highlight">系统架构</span>的一次轻量化洗礼。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">测试报告</span>
+                                                <span class="result-date">更新于 2026-04-20</span>
+                                                <span class="result-author">@前端小组</span>
+                                            </div>
+                                        </div>
+                                    </li>
+
+                                    <!-- Result 4 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">高并发下的分布式事务<span class="highlight">系统架构</span>剖析</div>
+                                            <div class="result-desc">在应对双十一级别的高并发访问时，传统的强一致性事务已无法满足性能要求，我们采用了基于消息队列的最终一致性<span class="highlight">系统架构</span>设计。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">架构与设计</span>
+                                                <span class="result-date">更新于 2026-04-18</span>
+                                                <span class="result-author">@架构组</span>
+                                            </div>
+                                        </div>
+                                    </li>
+
+                                    <!-- Result 5 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">自动化测试在重构<span class="highlight">系统架构</span>中的作用</div>
+                                            <div class="result-desc">重构底层的<span class="highlight">系统架构</span>风险极高，因此必须建立完善的自动化回归测试用例库，以确保所有核心链路的业务逻辑不受影响。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">测试报告</span>
+                                                <span class="result-date">更新于 2026-04-12</span>
+                                                <span class="result-author">@质量保障部</span>
+                                            </div>
+                                        </div>
+                                    </li>
+
+                                    <!-- Result 6 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">容器化部署与云原生<span class="highlight">系统架构</span>迁移指南</div>
+                                            <div class="result-desc">将现有的微服务全部迁移至 Kubernetes 集群中，并采用云原生的<span class="highlight">系统架构</span>理念，实现计算资源的弹性伸缩与自动化运维。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">部署规约</span>
+                                                <span class="result-date">更新于 2026-04-05</span>
+                                                <span class="result-author">@运维团队</span>
+                                            </div>
+                                        </div>
+                                    </li>
+
+                                    <!-- Result 7 -->
+                                    <li class="search-result-item">
+                                        <div class="result-icon">
+                                            <div class="icon-square"></div>
+                                            <div class="icon-line"></div>
+                                        </div>
+                                        <div class="result-content">
+                                            <div class="result-title">从单体到微服务：KMS<span class="highlight">系统架构</span>的十年变迁</div>
+                                            <div class="result-desc">回顾知识管理系统(KMS)从最早的单体应用，经历 SOA 架构，最终演进为目前的 Service Mesh 微服务<span class="highlight">系统架构</span>的完整历程。</div>
+                                            <div class="result-footer">
+                                                <span class="result-tag">项目复盘</span>
+                                                <span class="result-date">更新于 2026-03-20</span>
+                                                <span class="result-author">@技术委员会</span>
+                                            </div>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
+
+                        </div>
+                    </div>
+                </div> <!-- End view-search -->
+
+                <!-- Page View: Q&A -->
+                <div class="page-view" id="view-qa">
+                    <div class="qa-layout">
+                        
+                        <!-- LEFT SIDE: HISTORY LIST -->
+                        <aside class="qa-sidebar">
+                            <button class="qa-new-btn">
+                                <span class="btn-text">NEW CHAT // 新对话</span>
+                                <span class="btn-icon">+</span>
+                            </button>
+
+                            <div class="qa-history-list">
+                                <!-- History Item 1 -->
+                                <div class="qa-history-item active">
+                                    <div class="history-content">
+                                        <div class="history-title">KMS 系统架构的演进历史</div>
+                                        <div class="history-date">2026-04-27 10:30</div>
+                                    </div>
+                                    <button class="history-delete-btn" title="删除对话">✕</button>
+                                </div>
+                                <!-- History Item 2 -->
+                                <div class="qa-history-item">
+                                    <div class="history-content">
+                                        <div class="history-title">关于前端状态管理的最佳实践</div>
+                                        <div class="history-date">2026-04-26 15:45</div>
+                                    </div>
+                                    <button class="history-delete-btn" title="删除对话">✕</button>
+                                </div>
+                                <!-- History Item 3 -->
+                                <div class="qa-history-item">
+                                    <div class="history-content">
+                                        <div class="history-title">Elasticsearch 集群配置参数说明</div>
+                                        <div class="history-date">2026-04-25 09:12</div>
+                                    </div>
+                                    <button class="history-delete-btn" title="删除对话">✕</button>
+                                </div>
+                            </div>
+                        </aside>
+
+                        <!-- RIGHT SIDE: CHAT AREA -->
+                        <div class="qa-main">
+                            
+                            <!-- Chat Header: Repo Selector -->
+                            <div class="qa-header">
+                                <span class="qa-header-label">KNOWLEDGE BASE //</span>
+                                <select class="cyber-select qa-repo-select">
+                                    <option value="all">全局知识库 (Global)</option>
+                                    <option value="arch">架构与设计 (Architecture)</option>
+                                    <option value="prd">产品文档 (Product)</option>
+                                    <option value="api">API开发文档 (API Docs)</option>
+                                </select>
+                            </div>
+
+                            <!-- Chat Messages Area -->
+                            <div class="qa-chat-area">
+                                
+                                <!-- AI Bubble -->
+                                <div class="chat-bubble ai-bubble">
+                                    <div class="bubble-header">KMS-AI // ASSISTANT</div>
+                                    <div class="bubble-content">
+                                        您好，我是 KMS 智能知识助手。您可以向我提问关于企业知识库中的任何问题。
+                                    </div>
+                                </div>
+
+                                <!-- User Bubble -->
+                                <div class="chat-bubble user-bubble">
+                                    <div class="bubble-header">USER // OP-77</div>
+                                    <div class="bubble-content">
+                                        请帮我总结一下《KMS 系统架构设计与演进 (v2.0)》的核心内容。
+                                    </div>
+                                </div>
+
+                                <!-- AI Bubble -->
+                                <div class="chat-bubble ai-bubble">
+                                    <div class="bubble-header">KMS-AI // ASSISTANT</div>
+                                    <div class="bubble-content">
+                                        基于【全局知识库】的检索，该文档的核心内容如下：<br><br>
+                                        1. <b>多视图控制器设计</b>：实现了前端基于路由的无刷新页面切换，提升响应速度。<br>
+                                        2. <b>检索服务集成</b>：底层替换为 Elasticsearch 集群，支持全文高亮检索与毫秒级响应。<br>
+                                        3. <b>UI 组件化拆分</b>：遵循赛博朋克风格规范，提取了如 <code>cyber-btn</code>、<code>cyber-select</code> 等基础组件，便于复用。
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <!-- Chat Input Area -->
+                            <div class="qa-input-area">
+                                <div class="qa-input-wrapper">
+                                    <textarea class="qa-textarea" placeholder="输入您的问题 (Shift+Enter 换行)..."></textarea>
+                                    <div class="input-energy-line"></div>
+                                </div>
+                                <button class="qa-send-btn">
+                                    <span class="btn-text">发送</span>
+                                    <span class="btn-icon">➤</span>
+                                </button>
+                            </div>
+
+                        </div>
+                    </div>
+                </div> <!-- End view-qa -->
+
+                <!-- Page View: Profile -->
+                <div class="page-view" id="view-profile">
+                    <div class="profile-layout">
+                        
+                        <!-- LEFT SIDE: PROFILE CARD -->
+                        <aside class="profile-sidebar">
+                            <div class="profile-card">
+                                
+                                <div class="profile-header">
+                                    <div class="avatar-placeholder">
+                                        <div class="avatar-grid"></div>
+                                        <span class="avatar-id">OP-77</span>
+                                    </div>
+                                    <div class="profile-title">
+                                        <h2 class="profile-name">系统管理员</h2>
+                                        <div class="profile-role">高级系统架构师 // 01</div>
+                                    </div>
+                                </div>
+
+                                <div class="profile-info-matrix">
+                                    <div class="info-row">
+                                        <span class="info-label">ACC // 账号</span>
+                                        <span class="info-value">admin_001</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">DEPT // 部门</span>
+                                        <span class="info-value">核心研发部</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">TEL // 电话</span>
+                                        <span class="info-value">+86 138-xxxx-8888</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">MAIL // 邮箱</span>
+                                        <span class="info-value">admin@cyber-kms.org</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">SEX // 性别</span>
+                                        <span class="info-value">未设定 (M/F)</span>
+                                    </div>
+                                </div>
+
+                                <div class="profile-bio">
+                                    <div class="bio-label">BIO // 个人简介</div>
+                                    <div class="bio-text">
+                                        负责企业知识管理系统的底层架构设计与赛博朋克风格前端UI推进。擅长在混沌的数据流中建立机械般的秩序。
+                                    </div>
+                                </div>
+
+                                <div class="profile-actions">
+                                    <button class="profile-action-btn edit-action-btn">信息编辑 // EDIT</button>
+                                    <button class="profile-action-btn pwd-action-btn">密码修改 // PWD</button>
+                                </div>
+
+                            </div>
+                        </aside>
+
+                        <!-- RIGHT SIDE: VIEWPORT FOR ANIMATION -->
+                        <div class="profile-right-viewport">
+                            
+                            <!-- RIGHT SIDE: NOTES & FAVORITES -->
+                            <div class="profile-main">
+                            
+                            <!-- Top Half: My Notes -->
+                            <div class="profile-section">
+                                <div class="favorites-header">
+                                    <span class="favorites-title">NOTES // 我的笔记</span>
+                                    <div class="favorites-line"></div>
+                                    <span class="favorites-count">Total: 10</span>
+                                </div>
+
+                                <ul class="favorites-list">
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">系统部署环境搭建记录</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">个人草稿</span>
+                                                <span class="fav-date">更新于 2026-04-27</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">Elasticsearch 搜索调优思路</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">技术总结</span>
+                                                <span class="fav-date">更新于 2026-04-25</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">多视图路由控制器核心逻辑</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">核心逻辑</span>
+                                                <span class="fav-date">更新于 2026-04-23</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">PNS 机甲风组件化拆分计划</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">待办事项</span>
+                                                <span class="fav-date">更新于 2026-04-22</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">前端性能压测报告 (v2.0)</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">测试记录</span>
+                                                <span class="fav-date">更新于 2026-04-20</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">知识问答 (Q&A) 模块需求池</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">产品需求</span>
+                                                <span class="fav-date">更新于 2026-04-18</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">侧边栏动态路由状态管理</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">核心逻辑</span>
+                                                <span class="fav-date">更新于 2026-04-17</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">组件库颜色变量 (Variables) 清单</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">UI/UX规范</span>
+                                                <span class="fav-date">更新于 2026-04-16</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">企业知识库数据迁移脚本</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">工具脚本</span>
+                                                <span class="fav-date">更新于 2026-04-15</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">■</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">后端 API 接口契约说明 (v1.5)</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">API文档</span>
+                                                <span class="fav-date">更新于 2026-04-14</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">编辑</button>
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <!-- Bottom Half: My Favorites -->
+                            <div class="profile-section">
+                                <div class="favorites-header">
+                                    <span class="favorites-title">FAVORITES // 我的收藏</span>
+                                    <div class="favorites-line"></div>
+                                    <span class="favorites-count">Total: 10</span>
+                                </div>
+
+                                <ul class="favorites-list">
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">系统架构图 v2.0 - 高清版</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">架构与设计</span>
+                                                <span class="fav-date">收藏于 2026-04-20</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">KMS 前端样式开发规范 (Monochrome)</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">UI/UX规范</span>
+                                                <span class="fav-date">收藏于 2026-04-22</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">全库检索 Elasticsearch 索引配置指南</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">操作手册</span>
+                                                <span class="fav-date">收藏于 2026-04-25</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">赛博朋克 UI 交互动效复盘总结</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">项目复盘</span>
+                                                <span class="fav-date">收藏于 2026-04-26</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">分布式事务解决方案对比</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">架构与设计</span>
+                                                <span class="fav-date">收藏于 2026-04-18</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">数据库高可用部署方案</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">部署规约</span>
+                                                <span class="fav-date">收藏于 2026-04-15</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">微服务网关限流配置说明</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">操作手册</span>
+                                                <span class="fav-date">收藏于 2026-04-10</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">前端工程化与自动化测试构建</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">前端开发</span>
+                                                <span class="fav-date">收藏于 2026-04-05</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">代码评审 (Code Review) 最佳实践</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">研发规范</span>
+                                                <span class="fav-date">收藏于 2026-04-02</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                    <li class="favorite-item">
+                                        <div class="fav-icon">★</div>
+                                        <div class="fav-content">
+                                            <div class="fav-title">产品需求池优先级排期表 (Q2)</div>
+                                            <div class="fav-meta">
+                                                <span class="fav-tag">产品文档</span>
+                                                <span class="fav-date">收藏于 2026-04-01</span>
+                                            </div>
+                                        </div>
+                                        <button class="fav-action-btn">查看</button>
+                                    </li>
+                                </ul>
+                            </div>
+
+                        </div>
+
+                        <!-- RIGHT SIDE: EDIT VIEW -->
+                        <div class="profile-edit-view">
+                            <div class="edit-header">
+                                <span class="edit-title">PROFILE CONFIG // 个人信息配置</span>
+                                <div class="edit-line"></div>
+                            </div>
+                            <div class="edit-form">
+                                <div class="edit-field">
+                                    <label class="cyber-label">用户名 (NAME)</label>
+                                    <input type="text" class="cyber-input" value="系统管理员">
+                                </div>
+                                <div class="edit-field">
+                                    <label class="cyber-label">部门 (DEPT)</label>
+                                    <input type="text" class="cyber-input" value="核心研发部">
+                                </div>
+                                <div class="edit-field">
+                                    <label class="cyber-label">电话 (TEL)</label>
+                                    <input type="text" class="cyber-input" value="+86 138-xxxx-8888">
+                                </div>
+                                <div class="edit-field">
+                                    <label class="cyber-label">邮箱 (MAIL)</label>
+                                    <input type="text" class="cyber-input" value="admin@cyber-kms.org">
+                                </div>
+                                <div class="edit-field">
+                                    <label class="cyber-label">个人简介 (BIO)</label>
+                                    <textarea class="cyber-input" rows="4">负责企业知识管理系统的底层架构设计与赛博朋克风格前端UI推进。擅长在混沌的数据流中建立机械般的秩序。</textarea>
+                                </div>
+                                <div class="edit-actions">
+                                    <button class="cyber-btn edit-cancel-btn">CANCEL // 取消</button>
+                                    <button class="cyber-btn edit-save-btn">SAVE // 保存</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT SIDE: PWD VIEW -->
+                        <div class="profile-pwd-view profile-edit-view">
+                            <div class="edit-header">
+                                <span class="edit-title">SECURITY CONFIG // 安全配置</span>
+                                <div class="edit-line"></div>
+                            </div>
+                            <div class="edit-form">
+                                <div class="edit-field">
+                                    <label class="cyber-label">当前密码 (OLD PASSWORD)</label>
+                                    <input type="password" class="cyber-input" placeholder="输入当前密码...">
+                                </div>
+                                <div class="edit-field">
+                                    <label class="cyber-label">新密码 (NEW PASSWORD)</label>
+                                    <input type="password" class="cyber-input" placeholder="输入新密码 (包含字母数字)...">
+                                </div>
+                                <div class="edit-field">
+                                    <label class="cyber-label">确认密码 (CONFIRM PASSWORD)</label>
+                                    <input type="password" class="cyber-input" placeholder="再次输入新密码...">
+                                </div>
+                                <div class="edit-actions">
+                                    <button class="cyber-btn pwd-cancel-btn">CANCEL // 取消</button>
+                                    <button class="cyber-btn pwd-save-btn">UPDATE // 更新</button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div> <!-- End profile-right-viewport -->
+                    </div>
+                </div> <!-- End view-profile -->
+
+                <!-- Page View: Note Read -->
+                <div class="page-view" id="view-note-read">
+                    <div class="note-read-layout">
+                        
+                        <!-- Top Header -->
+                        <div class="note-read-header">
+                            <button class="cyber-btn note-back-btn">&lt; RETURN // 返回</button>
+                            <div class="note-title-area">
+                                <h1 class="note-main-title">高并发下的分布式事务架构剖析</h1>
+                                <div class="note-meta-line">
+                                    AUTHOR: @架构组 | DATE: 2026-04-18 | TAG: [已发布]
+                                </div>
+                            </div>
+                            <div class="note-actions">
+                                <button class="action-btn like-btn">♡ LIKE // 128</button>
+                                <button class="action-btn star-btn">☆ STAR // 收藏</button>
+                            </div>
+                        </div>
+
+                        <!-- Body Area -->
+                        <div class="note-read-body">
+                            
+                            <!-- Left: Main Content & Comments -->
+                            <div class="note-content-area">
+                                
+                                <div class="markdown-body">
+                                    <h3>■ 1. 业务背景</h3>
+                                    <p>在应对双十一级别的高并发访问时，传统的强一致性事务已无法满足性能要求。我们需要一种全新的机制来保证最终一致性，同时最大化系统的吞吐量。</p>
+                                    
+                                    <h3>■ 2. 方案选型</h3>
+                                    <p>经过评估，我们决定采用基于消息队列（如 RocketMQ）的事务消息方案。该方案不仅可以解耦微服务，还能有效应对流量洪峰。</p>
+                                    
+                                    <div class="code-block-wrapper">
+                                        <div class="code-lang">[JAVA]</div>
+                                        <pre><code>
+@Transactional
+public void createOrder(Order order) {
+    // 1. 本地落库
+    orderRepository.save(order);
+    
+    // 2. 发送半消息
+    mqProducer.sendMessageInTransaction("ORDER_TOPIC", order);
+}
+                                        </code></pre>
+                                    </div>
+                                    
+                                    <h3>■ 3. 补偿机制与对账</h3>
+                                    <p>对于可能出现的异常，我们需要有一套健全的 T+1 对账体系以及实时补偿任务，以确保资金绝对安全。</p>
+                                </div>
+
+                                <!-- Comments Section -->
+                                <div class="note-comments-section">
+                                    <div class="comments-divider">
+                                        <div class="div-line"></div>
+                                        <span class="div-text">COMMENTS // 评论区</span>
+                                        <div class="div-line"></div>
+                                    </div>
+                                    
+                                    <div class="comment-input-area">
+                                        <textarea class="cyber-textarea" placeholder="输入您的评论 (支持 Markdown)..."></textarea>
+                                        <button class="cyber-btn submit-comment-btn">SUBMIT // 提交</button>
+                                    </div>
+
+                                    <div class="comments-list">
+                                        <div class="comment-item">
+                                            <div class="comment-meta">[2026-04-27 15:30:11] @开发组-李四 :</div>
+                                            <div class="comment-text">这套方案目前在压测环境表现如何？RocketMQ 的事务反查接口是否已经实现了幂等？</div>
+                                            <button class="reply-btn">REPLY</button>
+                                        </div>
+                                        <div class="comment-item">
+                                            <div class="comment-meta">[2026-04-27 16:05:22] @架构组-张三 :</div>
+                                            <div class="comment-text">压测已经过关，QPS 稳定在 5W 以上。反查接口使用了单独的流水表来保证幂等性。</div>
+                                            <button class="reply-btn">REPLY</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <!-- Right: Sidebar (Attachments & TOC) -->
+                            <div class="note-sidebar">
+                                
+                                <div class="sidebar-block">
+                                    <div class="block-title">ATTACHMENTS // 附件列表</div>
+                                    <div class="attachment-list">
+                                        <div class="attachment-card">
+                                            <span class="att-icon">[PDF]</span>
+                                            <span class="att-name">系统拓扑图_v2.pdf (2.4MB)</span>
+                                            <button class="att-download">↓</button>
+                                        </div>
+                                        <div class="attachment-card">
+                                            <span class="att-icon">[ZIP]</span>
+                                            <span class="att-name">测试压测脚本合集.zip (15MB)</span>
+                                            <button class="att-download">↓</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="sidebar-block">
+                                    <div class="block-title">TOC // 大纲导航</div>
+                                    <ul class="toc-list">
+                                        <li class="toc-item active">1. 业务背景</li>
+                                        <li class="toc-item">2. 方案选型</li>
+                                        <li class="toc-item">3. 补偿机制与对账</li>
+                                    </ul>
+                                </div>
+
+                            </div>
+
+                        </div>
+                    </div>
+                </div> <!-- End view-note-read -->
+
+
+            </main>
+        </div>
+
+        <!-- Bottom Footer -->
+        <footer class="bottom-footer">
+            <div class="footer-left">
+                <span class="arrows">▶ ▶ ▶</span>
+                <span class="force-text">PUNISHING FORCE</span>
+                <div class="line"></div>
+            </div>
+
+            <div class="footer-center">
+                <div class="caution-wrapper">
+                    <span class="caution-text">CAUTION</span>
+                    <svg class="caution-triangle" viewBox="0 0 88 64" aria-hidden="true">
+                        <path d="M2 2 H86 L44 62 Z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <div class="footer-right">
+                <div class="line"></div>
+                <div class="slashes">////////</div>
+                <div class="corner-shape"></div>
+            </div>
+        </footer>
+
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>

@@ -5,13 +5,19 @@ class NoteListItem(BaseModel):
     id: int
     title: str
     folder_id: int | None
+    content_text: str
     author_name: str
     author_user_id: int | None
     clearance_level: int
     created_at: str
     updated_at: str
+    editable_by_clearance: bool = False
+    can_edit: bool
     attachment_count: int
     can_delete: bool
+    search_index_status: str
+    search_index_error: str | None = None
+    search_indexed_at: str | None = None
 
 
 class AttachmentItem(BaseModel):
@@ -62,11 +68,18 @@ class NoteDetailResponse(BaseModel):
     title: str
     author_name: str
     author_user_id: int | None
+    content_markdown: str
     content_json: str
     content_text: str
     clearance_level: int
     updated_at: str
+    editable_by_clearance: bool = False
+    can_edit: bool
+    can_change_edit_policy: bool
     can_delete: bool
+    search_index_status: str
+    search_index_error: str | None = None
+    search_indexed_at: str | None = None
     like_count: int
     liked_by_me: bool
     favorite_count: int
@@ -104,13 +117,17 @@ NoteDetailResponse.model_rebuild()
 
 class NoteUpdateRequest(BaseModel):
     title: str
-    content_text: str
+    content_markdown: str | None = None
+    content_text: str = ""
     content_json: str | None = None
+    editable_by_clearance: bool | None = None
 
 
 class NoteCreateRequest(BaseModel):
     title: str
+    content_markdown: str | None = None
     content_text: str = ""
     content_json: str | None = None
     folder_id: int | None = None
     min_clearance_level: int | None = None
+    editable_by_clearance: bool = False

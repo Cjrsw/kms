@@ -29,7 +29,7 @@ export function AuthorAutocompleteInput({
   return (
     <div className="relative">
       <input
-        className="block w-full rounded-lg border border-gray-300 bg-gray-50 py-2.5 pl-9 pr-3 text-sm text-gray-700 outline-none transition-colors hover:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+        className="kms-cyber-input"
         name={name}
         onBlur={() => setTimeout(() => setIsOpen(false), 100)}
         onChange={(event) => {
@@ -42,10 +42,10 @@ export function AuthorAutocompleteInput({
         value={value}
       />
       {isOpen && filteredSuggestions.length > 0 ? (
-        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="kms-author-suggestions">
           {filteredSuggestions.map((item) => (
             <button
-              className="block w-full px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-blue-50"
+              className="kms-author-suggestion"
               key={item}
               onMouseDown={(event) => {
                 event.preventDefault();

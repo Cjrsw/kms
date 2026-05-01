@@ -68,3 +68,19 @@ class FavoriteNoteItem(BaseModel):
 class FavoriteNotesResponse(BaseModel):
     total: int
     items: list[FavoriteNoteItem]
+
+
+class MyNoteItem(BaseModel):
+    note_id: int
+    repository_slug: str
+    repository_name: str
+    title: str
+    content_text: str
+    clearance_level: int
+    updated_at: str
+    href: str
+
+
+class MyNotesResponse(BaseModel):
+    total: int
+    items: list[MyNoteItem]

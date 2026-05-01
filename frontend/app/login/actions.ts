@@ -28,5 +28,5 @@ export async function loginAction(formData: FormData) {
   }
 
   await setAuthSession(result.token);
-  redirect("/repositories");
+  redirect("/");
 }

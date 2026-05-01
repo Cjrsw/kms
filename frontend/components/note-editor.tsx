@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { EditorContent, useEditor } from "@tiptap/react";
 import LinkExtension from "@tiptap/extension-link";
 import StarterKit from "@tiptap/starter-kit";
+import MarkdownIt from "markdown-it";
 import {
   Bold,
   Heading1,
@@ -24,10 +26,28 @@ import { clsx } from "clsx";
 type NoteEditorProps = {
   cancelHref: string;
   initialTitle: string;
+  initialContentMarkdown: string;
   initialContentJson: string;
   initialContentText: string;
+  initialEditableByClearance?: boolean;
+  canChangeEditPolicy?: boolean;
   action: (formData: FormData) => void;
   uploadAction?: (formData: FormData) => Promise<void> | void;
+};
+
+const markdownParser = new MarkdownIt({
+  breaks: false,
+  html: false,
+  linkify: true,
+  typographer: true
+});
+
+type TiptapJsonNode = {
+  type?: string;
+  text?: string;
+  attrs?: Record<string, any>;
+  marks?: Array<{ type?: string; attrs?: Record<string, any> }>;
+  content?: TiptapJsonNode[];
 };
 
 function createFallbackDocument(contentText: string) {
@@ -42,16 +62,28 @@ function createFallbackDocument(contentText: string) {
   };
 }
 
-function parseInitialDocument(contentJson: string, contentText: string) {
+function parseJsonDocument(contentJson: string) {
   try {
     const parsed = JSON.parse(contentJson);
     if (parsed && typeof parsed === "object" && parsed.type === "doc") {
       return parsed;
     }
   } catch {
-    return createFallbackDocument(contentText);
+    return null;
   }
 
+  return null;
+}
+
+function parseInitialDocument(contentMarkdown: string, contentJson: string, contentText: string) {
+  const jsonDocument = parseJsonDocument(contentJson);
+  if (jsonDocument) {
+    return jsonDocument;
+  }
+
+  if (contentMarkdown.trim()) {
+    return markdownParser.render(contentMarkdown);
+  }
   return createFallbackDocument(contentText);
 }
 
@@ -59,22 +91,157 @@ function getEditorPlainText(editor: { getText: (options?: { blockSeparator?: str
   return editor.getText({ blockSeparator: "\n" }).trim();
 }
 
+function applyMarkdownMarks(value: string, marks?: TiptapJsonNode["marks"]) {
+  if (!marks?.length) {
+    return value;
+  }
+
+  return marks.reduce((current, mark) => {
+    switch (mark.type) {
+      case "bold":
+        return `**${current}**`;
+      case "italic":
+        return `*${current}*`;
+      case "strike":
+        return `~~${current}~~`;
+      case "code":
+        return `\`${current.replace(/`/g, "\\`")}\``;
+      case "link": {
+        const href = String(mark.attrs?.href || "").trim();
+        return href ? `[${current}](${href})` : current;
+      }
+      default:
+        return current;
+    }
+  }, value);
+}
+
+function serializeInlineNodes(nodes: TiptapJsonNode[] = []): string {
+  return nodes
+    .map((node) => {
+      if (node.type === "text") {
+        return applyMarkdownMarks(node.text || "", node.marks);
+      }
+      if (node.type === "hardBreak") {
+        return "  \n";
+      }
+      return serializeInlineNodes(node.content);
+    })
+    .join("");
+}
+
+function indentMarkdown(value: string) {
+  return value
+    .split("\n")
+    .map((line) => (line ? `  ${line}` : line))
+    .join("\n");
+}
+
+function serializeListItem(node: TiptapJsonNode): string {
+  const blocks = node.content || [];
+  const [firstBlock, ...restBlocks] = blocks;
+  const firstLine =
+    firstBlock?.type === "paragraph"
+      ? serializeInlineNodes(firstBlock.content)
+      : serializeMarkdownNode(firstBlock || { type: "paragraph" });
+  const rest = restBlocks.map((block) => indentMarkdown(serializeMarkdownNode(block))).filter(Boolean);
+
+  return [firstLine, ...rest].filter(Boolean).join("\n");
+}
+
+function serializeMarkdownNode(node: TiptapJsonNode): string {
+  switch (node.type) {
+    case "doc":
+      return (node.content || []).map(serializeMarkdownNode).filter(Boolean).join("\n\n");
+    case "paragraph":
+      return serializeInlineNodes(node.content);
+    case "heading": {
+      const level = Math.min(Math.max(Number(node.attrs?.level || 1), 1), 6);
+      return `${"#".repeat(level)} ${serializeInlineNodes(node.content)}`.trim();
+    }
+    case "bulletList":
+      return (node.content || [])
+        .map((item) => `- ${serializeListItem(item).replace(/\n/g, "\n  ")}`)
+        .join("\n");
+    case "orderedList": {
+      const start = Number(node.attrs?.start || 1);
+      return (node.content || [])
+        .map((item, index) => `${start + index}. ${serializeListItem(item).replace(/\n/g, "\n   ")}`)
+        .join("\n");
+    }
+    case "listItem":
+      return serializeListItem(node);
+    case "blockquote":
+      return serializeMarkdownNode({ type: "doc", content: node.content })
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n");
+    case "codeBlock": {
+      const language = String(node.attrs?.language || "").trim();
+      return `\`\`\`${language}\n${serializeInlineNodes(node.content)}\n\`\`\``;
+    }
+    case "horizontalRule":
+      return "---";
+    case "hardBreak":
+      return "  \n";
+    case "text":
+      return applyMarkdownMarks(node.text || "", node.marks);
+    default:
+      return serializeInlineNodes(node.content);
+  }
+}
+
+function getEditorMarkdown(editor: { getJSON: () => TiptapJsonNode }) {
+  return serializeMarkdownNode(editor.getJSON()).trim();
+}
+
 export function NoteEditor({
   cancelHref,
   initialTitle,
+  initialContentMarkdown,
   initialContentJson,
   initialContentText,
+  initialEditableByClearance = false,
+  canChangeEditPolicy = false,
   action,
   uploadAction
 }: NoteEditorProps) {
   const [title, setTitle] = useState(initialTitle);
   const [contentText, setContentText] = useState(initialContentText);
+  const [contentMarkdown, setContentMarkdown] = useState(initialContentMarkdown || initialContentText);
   const [contentJson, setContentJson] = useState(
     initialContentJson || JSON.stringify(createFallbackDocument(initialContentText))
   );
   const [isUploading, setIsUploading] = useState(false);
+  const [editableByClearance, setEditableByClearance] = useState(initialEditableByClearance);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const contentTextInputRef = useRef<HTMLInputElement>(null);
+  const contentMarkdownInputRef = useRef<HTMLInputElement>(null);
+  const contentJsonInputRef = useRef<HTMLInputElement>(null);
+
+  function syncEditorFields(currentEditor: {
+    getText: (options?: { blockSeparator?: string }) => string;
+    getJSON: () => TiptapJsonNode;
+  }) {
+    const nextContentText = getEditorPlainText(currentEditor);
+    const nextContentMarkdown = getEditorMarkdown(currentEditor) || nextContentText;
+    const nextContentJson = JSON.stringify(currentEditor.getJSON());
+
+    setContentText(nextContentText);
+    setContentMarkdown(nextContentMarkdown);
+    setContentJson(nextContentJson);
+
+    if (contentTextInputRef.current) {
+      contentTextInputRef.current.value = nextContentText;
+    }
+    if (contentMarkdownInputRef.current) {
+      contentMarkdownInputRef.current.value = nextContentMarkdown;
+    }
+    if (contentJsonInputRef.current) {
+      contentJsonInputRef.current.value = nextContentJson;
+    }
+  }
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -86,16 +253,14 @@ export function NoteEditor({
         defaultProtocol: "https"
       })
     ],
-    content: parseInitialDocument(initialContentJson, initialContentText),
+    content: parseInitialDocument(initialContentMarkdown, initialContentJson, initialContentText),
     editorProps: {
       attributes: {
-        class:
-          "min-h-[460px] px-8 py-6 text-lg leading-loose text-slate-800 outline-none ProseMirror prose prose-slate prose-lg max-w-none focus:outline-none"
+        class: "kms-editor-prosemirror"
       }
     },
     onUpdate: ({ editor: currentEditor }) => {
-      setContentText(getEditorPlainText(currentEditor));
-      setContentJson(JSON.stringify(currentEditor.getJSON()));
+      syncEditorFields(currentEditor);
     }
   });
 
@@ -104,8 +269,7 @@ export function NoteEditor({
       return;
     }
 
-    setContentText(getEditorPlainText(editor));
-    setContentJson(JSON.stringify(editor.getJSON()));
+    syncEditorFields(editor);
   }, [editor]);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -177,31 +341,56 @@ export function NoteEditor({
   ];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 animate-fade-in">
-      <form action={action} className="space-y-6" id="note-form">
-        <section className="rounded-3xl border border-slate-200/60 bg-white shadow-soft transition-all focus-within:shadow-floating focus-within:border-indigo-300">
-          <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 rounded-t-3xl">
-            <label className="block text-sm font-bold tracking-widest uppercase text-slate-400" htmlFor="title">
-              笔记标题
-            </label>
+    <div className="kms-note-editor">
+      <form
+        action={action}
+        className="kms-note-editor-form"
+        id="note-form"
+        onSubmit={() => {
+          if (editor) {
+            syncEditorFields(editor);
+          }
+        }}
+      >
+        <section className="kms-editor-title-panel">
+          <div className="kms-editor-panel-head">
+            <label htmlFor="title">TITLE // 笔记标题</label>
+            <div className="kms-editor-title-right">
+              <span>{title.length} CHARS</span>
+              {canChangeEditPolicy ? (
+                <button
+                  type="button"
+                  className={clsx(
+                    "kms-editor-policy-btn",
+                    editableByClearance ? "open" : "private"
+                  )}
+                  onClick={() => setEditableByClearance(!editableByClearance)}
+                  title={editableByClearance ? "公开编辑" : "私人编辑"}
+                >
+                  {editableByClearance ? "公开" : "私人"}
+                </button>
+              ) : null}
+            </div>
           </div>
-          <div className="p-6">
+          <div className="kms-editor-title-body">
             <input
-              className="w-full border-none bg-transparent px-2 py-2 text-2xl font-bold text-slate-900 outline-none placeholder:text-slate-300 focus:ring-0"
+              className="kms-editor-title-input"
               id="title"
               name="title"
-              placeholder="在这里输入一个响亮的标题..."
+              placeholder="请输入笔记标题..."
               onChange={(event) => setTitle(event.target.value)}
               value={title}
             />
           </div>
         </section>
 
-        <section className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-soft transition-all focus-within:shadow-floating focus-within:border-indigo-300">
-          <div className="flex flex-wrap items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-3 gap-4">
-            <label className="text-sm font-bold tracking-widest uppercase text-slate-400 shrink-0">正文编辑区</label>
-            
-            <div className="flex flex-wrap items-center gap-1">
+        <input type="hidden" name="editable_by_clearance" value={editableByClearance ? "true" : "false"} />
+
+        <section className="kms-editor-body-panel">
+          <div className="kms-editor-toolbar">
+            <label>CONTENT // 正文编辑区</label>
+
+            <div className="kms-editor-tools">
               {toolbarItems.map((item) => {
                 const Icon = item.icon;
 
@@ -209,10 +398,8 @@ export function NoteEditor({
                   <button
                     key={item.label}
                     className={clsx(
-                      "inline-flex h-9 w-9 items-center justify-center rounded-xl transition-all",
-                      item.active
-                        ? "bg-indigo-100 text-indigo-700 shadow-sm"
-                        : "text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                      "kms-editor-tool-btn",
+                      item.active && "active"
                     )}
                     onClick={item.onClick}
                     type="button"
@@ -225,18 +412,18 @@ export function NoteEditor({
 
               {uploadAction && (
                 <>
-                  <div className="mx-2 h-5 w-[1px] bg-slate-300"></div>
+                  <div className="kms-editor-tool-divider" />
                   <button
-                    className="group relative inline-flex h-9 items-center justify-center gap-2 rounded-xl px-3 text-slate-500 transition-all hover:bg-slate-200 hover:text-slate-900"
+                    className="kms-editor-upload-btn"
                     type="button"
                     title="上传附件"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isUploading}
                   >
                     {isUploading ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Paperclip className="h-4 w-4 group-hover:text-indigo-600 transition-colors" />
+                      <Paperclip className="h-4 w-4" />
                     )}
                     <span className="text-xs font-semibold">{isUploading ? '上传中...' : '上传附件'}</span>
                   </button>
@@ -252,37 +439,47 @@ export function NoteEditor({
             </div>
           </div>
 
-          <div className="flex-1 bg-white">
+          <div className="kms-editor-canvas">
             <EditorContent editor={editor} />
           </div>
 
-          <input name="content_text" type="hidden" value={contentText} />
-          <input name="content_json" type="hidden" value={contentJson} />
+          <input ref={contentTextInputRef} name="content_text" type="hidden" value={contentText} readOnly />
+          <input ref={contentMarkdownInputRef} name="content_markdown" type="hidden" value={contentMarkdown} readOnly />
+          <input ref={contentJsonInputRef} name="content_json" type="hidden" value={contentJson} readOnly />
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-slate-100 bg-slate-50/50 p-5">
-            <p className="text-xs font-medium text-slate-400">
-              自动保存结构化 JSON 与纯文本，优化 Elasticsearch 检索体验。
+          <div className="kms-editor-footer">
+            <p>
+              保存时同步写入 Markdown、结构化 JSON 与纯文本；搜索和问答使用纯文本/Markdown 内容，评论不会进入检索。
             </p>
-            <div className="flex gap-3 shrink-0">
+            <div className="kms-editor-footer-actions">
               <Link
                 href={cancelHref}
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
+                className="kms-cyber-btn kms-editor-cancel-btn"
               >
                 <X className="h-4 w-4" />
-                放弃修改
+                CANCEL
               </Link>
-              <button
-                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-soft transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-floating active:scale-95"
-                type="submit"
-                form="note-form"
-              >
-                <Save className="h-4 w-4" />
-                保存笔记
-              </button>
+              <SaveNoteButton />
             </div>
           </div>
         </section>
       </form>
     </div>
+  );
+}
+
+function SaveNoteButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      className="kms-cyber-btn primary kms-editor-save-btn"
+      type="submit"
+      form="note-form"
+      disabled={pending}
+      aria-busy={pending}
+    >
+      {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+      {pending ? "上传中..." : "SAVE // 保存"}
+    </button>
   );
 }
