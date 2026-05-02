@@ -13,7 +13,7 @@ from app.models.content import (
 )
 from app.models.qa_history import QaConversation, QaMessage
 from app.models.system import SystemSetting
-from app.models.user import AuthAuditLog, Department, RevokedToken, Role, User, UserRole
+from app.models.user import AuthAuditLog, Department, PasswordResetRequest, RevokedToken, Role, User, UserRole
 
 __all__ = [
     "Attachment",
@@ -28,6 +28,7 @@ __all__ = [
     "NoteComment",
     "NoteFavorite",
     "NoteLike",
+    "PasswordResetRequest",
     "QaConversation",
     "QaAuditLog",
     "QaMessage",

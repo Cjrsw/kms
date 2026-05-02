@@ -45,7 +45,8 @@ Primary source: `docs/安全基线.md`
 - Role model stays `admin` and `employee`.
 - User-initiated password changes still require 6-64 chars with letters and digits.
 - First login is not forced to change password, but `need_password_change` reminder stays available.
-- Admin does not directly reset employee passwords from the admin UI.
+- Admin password reset is allowed only through the reset-request workflow or explicit admin edit action.
+- Admin reset must use the system default password `123456`, set `need_password_change=true`, clear lockout state, bump `token_version`, and write an auth audit log.
 - Disable/enable behavior still records disabled time and invalidates sessions.
 
 ## Review Rule

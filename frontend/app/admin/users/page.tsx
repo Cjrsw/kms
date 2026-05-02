@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Edit3, Plus, Search, Trash2 } from "lucide-react";
+import { Bell, Edit3, KeyRound, Plus, Search, Trash2 } from "lucide-react";
 
 import {
   AdminCard,
@@ -14,8 +14,8 @@ import {
   AdminToolbar,
   buildAdminQuery,
 } from "../../../components/admin-ui";
-import { createUserAction, deleteUserAction, updateUserAction } from "../actions";
-import { getAdminUsers } from "../../../lib/api";
+import { createUserAction, deleteUserAction, resetUserPasswordAction, updateUserAction } from "../actions";
+import { getAdminPasswordResetRequests, getAdminUsers } from "../../../lib/api";
 
 const employeeClearanceOptions = [1, 2, 3];
 
@@ -25,6 +25,7 @@ type SearchParams = Promise<{
   account_status?: "all" | "active" | "inactive";
   modal?: "create" | "edit";
   user_id?: string;
+  form_error?: string;
 }>;
 
 export default async function AdminUsersPage({ searchParams }: { searchParams?: SearchParams }) {
@@ -34,11 +35,14 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
   const accountStatusFilter =
     query.account_status === "active" || query.account_status === "inactive" ? query.account_status : "all";
 
-  const adminUsers = await getAdminUsers({
-    department_id: Number.isFinite(departmentIdFilter ?? NaN) ? departmentIdFilter : null,
-    keyword: keywordFilter,
-    account_status: accountStatusFilter,
-  });
+  const [adminUsers, passwordResetRequests] = await Promise.all([
+    getAdminUsers({
+      department_id: Number.isFinite(departmentIdFilter ?? NaN) ? departmentIdFilter : null,
+      keyword: keywordFilter,
+      account_status: accountStatusFilter,
+    }),
+    getAdminPasswordResetRequests(),
+  ]);
 
   const editingUser =
     query.modal === "edit" && query.user_id
@@ -61,6 +65,40 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
           </Link>
         }
       />
+
+      {passwordResetRequests.total > 0 ? (
+        <AdminCard className="mb-5 p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold text-red-300">
+                <Bell className="h-4 w-4" />
+                密码重置申请
+              </p>
+              <p className="mt-1 text-sm text-white/45">员工在登录页点击 CONTACT ADMIN 后，会在这里生成待处理消息。</p>
+            </div>
+            <span className="border border-red-500/35 bg-red-500/10 px-3 py-1 text-sm text-red-200">
+              {passwordResetRequests.total} 条待处理
+            </span>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {passwordResetRequests.requests.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-4 border border-white/10 bg-black/20 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">
+                    {item.department_name || "未分配部门"} / {item.full_name}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-white/40">
+                    {item.username} · {item.position || "未填写职位"} · {new Date(item.requested_at).toLocaleString("zh-CN")}
+                  </p>
+                </div>
+                <Link href={`/admin/users${buildAdminQuery(query, { modal: "edit", user_id: item.user_id })}`}>
+                  <AdminSecondaryButton className="h-9 shrink-0 px-3">去编辑</AdminSecondaryButton>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </AdminCard>
+      ) : null}
 
       <AdminCard className="p-5">
         <AdminToolbar>
@@ -158,12 +196,18 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
       </AdminCard>
 
       {query.modal === "create" ? (
-        <UserModal closeHref={closeHref} departments={adminUsers.departments} returnPath="/admin/users" />
+        <UserModal
+          closeHref={closeHref}
+          departments={adminUsers.departments}
+          errorMessage={query.form_error}
+          returnPath="/admin/users"
+        />
       ) : null}
       {editingUser ? (
         <UserModal
           closeHref={closeHref}
           departments={adminUsers.departments}
+          errorMessage={query.form_error}
           returnPath="/admin/users"
           user={editingUser}
         />
@@ -175,11 +219,13 @@ export default async function AdminUsersPage({ searchParams }: { searchParams?: 
 function UserModal({
   closeHref,
   departments,
+  errorMessage,
   returnPath,
   user,
 }: {
   closeHref: string;
   departments: Array<{ id: number; name: string }>;
+  errorMessage?: string;
   returnPath: string;
   user?: any;
 }) {
@@ -196,6 +242,11 @@ function UserModal({
       <form action={formAction} className="space-y-6">
         {isEdit ? <input name="user_id" type="hidden" value={user.id} /> : null}
         <input name="return_path" type="hidden" value={returnPath} />
+        {errorMessage ? (
+          <div className="border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {errorMessage}
+          </div>
+        ) : null}
 
         <div className="grid gap-5 lg:grid-cols-2">
           <div>
@@ -270,6 +321,12 @@ function UserModal({
         ) : null}
 
         <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+          {isEdit && !isAdmin ? (
+            <AdminSecondaryButton className="mr-auto gap-2" formAction={resetUserPasswordAction} type="submit">
+              <KeyRound className="h-4 w-4" />
+              重置密码为 123456
+            </AdminSecondaryButton>
+          ) : null}
           <Link href={closeHref}>
             <AdminSecondaryButton>取消</AdminSecondaryButton>
           </Link>

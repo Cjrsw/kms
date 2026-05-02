@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 
@@ -10,7 +10,7 @@ import { ProfileAvatarInput } from "@/components/profile-avatar-input";
 import type { FavoriteNotesResponse, MyNotesResponse } from "@/lib/api";
 import type { AuthUser } from "@/lib/auth";
 
-import { changePasswordAction, updateProfileAction } from "./actions";
+import { updateProfileAction } from "./actions";
 
 type ProfileMode = "edit" | "password" | null;
 
@@ -284,6 +284,77 @@ function ProfileEditView({
 }
 
 function ProfilePasswordView({ onCancel }: { onCancel: () => void }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isPending, startTransition] = useTransition();
+
+  function getPasswordFields() {
+    const formData = new FormData(formRef.current ?? undefined);
+    return {
+      currentPassword: String(formData.get("current_password") ?? "").trim(),
+      newPassword: String(formData.get("new_password") ?? "").trim(),
+      confirmPassword: String(formData.get("confirm_password") ?? "").trim(),
+    };
+  }
+
+  function validatePasswordFields(): { ok: true } | { ok: false; message: string } {
+    const { currentPassword, newPassword, confirmPassword } = getPasswordFields();
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return { ok: false, message: "请填写当前密码、新密码和确认密码。" };
+    }
+    if (newPassword !== confirmPassword) {
+      return { ok: false, message: "两次输入的新密码不一致。" };
+    }
+    if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,64}$/.test(newPassword)) {
+      return { ok: false, message: "新密码必须为 6-64 位且包含字母和数字。" };
+    }
+    return { ok: true };
+  }
+
+  function openConfirmDialog() {
+    const validation = validatePasswordFields();
+    if (!validation.ok) {
+      setErrorMessage(validation.message);
+      return;
+    }
+    setErrorMessage("");
+    setConfirmOpen(true);
+  }
+
+  function submitPasswordChange() {
+    const { currentPassword, newPassword } = getPasswordFields();
+    setErrorMessage("");
+    startTransition(async () => {
+      const response = await fetch("/api/profile/password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+
+      if (response.status === 204) {
+        setConfirmOpen(false);
+        setSuccessOpen(true);
+        return;
+      }
+      if (response.status === 401) {
+        window.location.assign("/logout");
+        return;
+      }
+
+      const payload = (await response.json().catch(() => ({}))) as { detail?: string };
+      const detail = payload.detail ?? "";
+      setConfirmOpen(false);
+      setErrorMessage(resolvePasswordApiError(detail));
+    });
+  }
+
   return (
     <div className="kms-profile-pwd-view kms-profile-edit-view">
       <div className="kms-profile-edit-header">
@@ -291,7 +362,8 @@ function ProfilePasswordView({ onCancel }: { onCancel: () => void }) {
         <div />
       </div>
 
-      <form action={changePasswordAction} className="kms-profile-edit-form">
+      <form ref={formRef} className="kms-profile-edit-form">
+        {errorMessage ? <div className="kms-profile-alert danger">{errorMessage}</div> : null}
         <ProfileInput label="当前密码 (OLD PASSWORD)" name="current_password" placeholder="输入当前密码" type="password" />
         <ProfileInput label="新密码 (NEW PASSWORD)" name="new_password" placeholder="新密码需包含字母和数字" type="password" />
         <ProfileInput label="确认密码 (CONFIRM PASSWORD)" name="confirm_password" placeholder="再次输入新密码" type="password" />
@@ -300,11 +372,44 @@ function ProfilePasswordView({ onCancel }: { onCancel: () => void }) {
           <button className="kms-cyber-btn ghost" onClick={onCancel} type="button">
             CANCEL // 取消
           </button>
-          <button className="kms-cyber-btn" type="submit">
+          <button className="kms-cyber-btn" disabled={isPending || successOpen} onClick={openConfirmDialog} type="button">
             UPDATE // 更新
           </button>
         </div>
       </form>
+      {confirmOpen ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-xl border border-white/15 bg-[#090b10] p-8 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
+            <p className="text-xs font-black uppercase tracking-[0.32em] text-red-500">CONFIRM UPDATE</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight text-white">确认更新密码？</h2>
+            <p className="mt-5 text-base leading-7 text-white/70">
+              更新成功后，当前登录会话会立即失效，需要使用新密码重新登录。
+            </p>
+            <div className="mt-8 flex justify-center gap-4">
+              <button className="kms-cyber-btn ghost" disabled={isPending} onClick={() => setConfirmOpen(false)} type="button">
+                CANCEL // 取消
+              </button>
+              <button className="kms-cyber-btn" disabled={isPending} onClick={submitPasswordChange} type="button">
+                {isPending ? "UPDATING // 更新中" : "CONFIRM // 确认"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {successOpen ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-xl border border-white/15 bg-[#090b10] p-8 text-center shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
+            <p className="text-xs font-black uppercase tracking-[0.32em] text-red-500">PASSWORD UPDATED</p>
+            <h2 className="mt-4 text-3xl font-black tracking-tight text-white">密码修改成功</h2>
+            <p className="mt-5 text-base leading-7 text-white/70">当前会话已失效，请重新登录。</p>
+            <div className="mt-8 flex justify-center">
+              <button className="kms-cyber-btn" onClick={() => window.location.assign("/password-updated")} type="button">
+                LOGIN // 重新登录
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -368,4 +473,14 @@ function resolvePasswordError(code: string) {
     return "当前密码不正确。";
   }
   return "密码修改失败，请检查输入后重试。";
+}
+
+function resolvePasswordApiError(detail: string) {
+  if (detail === "Current password is incorrect.") {
+    return "当前密码不正确。";
+  }
+  if (detail === "Password must include letters and numbers and be 6-64 characters long.") {
+    return "新密码必须为 6-64 位且包含字母和数字。";
+  }
+  return detail || "密码修改失败，请检查输入后重试。";
 }

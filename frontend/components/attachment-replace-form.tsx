@@ -18,7 +18,7 @@ export function AttachmentReplaceForm({ action, attachmentId }: AttachmentReplac
         <RefreshCw className="h-3 w-3" />
         替换
         <input
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept=".pdf,.docx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
           className="sr-only"
           name="attachment"
           type="file"

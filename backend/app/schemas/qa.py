@@ -12,6 +12,8 @@ class QaSourceItem(BaseModel):
     clearance_level: int
     attachment_count: int
     updated_at: str
+    score: float | None = None
+    hit_mode: str | None = None
 
 
 class QaAnswerData(BaseModel):

@@ -67,6 +67,12 @@ class User(Base):
     note_likes: Mapped[list["NoteLike"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     note_favorites: Mapped[list["NoteFavorite"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     note_comments: Mapped[list["NoteComment"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    password_reset_requests: Mapped[list["PasswordResetRequest"]] = relationship(
+        "PasswordResetRequest",
+        foreign_keys="PasswordResetRequest.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class Role(Base):
@@ -119,3 +125,25 @@ class RevokedToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User | None"] = relationship(back_populates="revoked_tokens")
+
+
+class PasswordResetRequest(Base):
+    __tablename__ = "password_reset_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    username: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[user_id],
+        back_populates="password_reset_requests",
+    )
+    resolved_by: Mapped["User | None"] = relationship("User", foreign_keys=[resolved_by_user_id])

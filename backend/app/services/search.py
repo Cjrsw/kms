@@ -128,6 +128,8 @@ def ensure_notes_index() -> None:
                 "has_attachment": {"type": "boolean"},
                 "has_pdf": {"type": "boolean"},
                 "has_docx": {"type": "boolean"},
+                "has_md": {"type": "boolean"},
+                "has_txt": {"type": "boolean"},
                 "updated_at": {"type": "date"},
             }
         },
@@ -812,7 +814,7 @@ def _query_note_ids_by_filters(
         query = query.filter(func.lower(Note.author_name).like(f"%{author}%"))
     if file_type == "note":
         query = query.filter(~Note.attachments.any())
-    elif file_type in {"pdf", "docx"}:
+    elif file_type in {"pdf", "docx", "md", "txt"}:
         query = query.filter(Note.attachments.any(func.lower(Attachment.file_type) == file_type))
     rows = query.all()
     return [int(row[0]) for row in rows]
@@ -837,7 +839,7 @@ def _query_placeholder_note_ids(
         query = query.filter(func.lower(Note.author_name).like(f"%{author}%"))
     if file_type == "note":
         query = query.filter(~Note.attachments.any())
-    elif file_type in {"pdf", "docx"}:
+    elif file_type in {"pdf", "docx", "md", "txt"}:
         query = query.filter(Note.attachments.any(func.lower(Attachment.file_type) == file_type))
 
     rows = query.all()
@@ -1223,6 +1225,8 @@ def _upsert_note_document(db: Session, note: Note, *, include_vector: bool) -> N
             "has_attachment": bool(note.attachments),
             "has_pdf": "pdf" in file_types,
             "has_docx": "docx" in file_types,
+            "has_md": "md" in file_types,
+            "has_txt": "txt" in file_types,
             "updated_at": note.updated_at.isoformat(),
         }
         client.index(index=NOTES_INDEX, id=es_id, document=document, refresh=False)

@@ -8,11 +8,12 @@ type AttachmentActionsProps = {
 };
 
 export function AttachmentActions({ repoId, noteId, attachmentId, fileType }: AttachmentActionsProps) {
-  const isPdf = fileType.toLowerCase() === "pdf";
+  const normalizedFileType = fileType.toLowerCase();
+  const canPreview = ["pdf", "md", "txt"].includes(normalizedFileType);
 
   return (
     <div className="flex flex-shrink-0 gap-2 text-xs">
-      {isPdf ? (
+      {canPreview ? (
         <a
           className="rounded border border-gray-300 px-2 py-1 text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
           href={`/repositories/${repoId}/notes/${noteId}/attachments/${attachmentId}/preview`}
@@ -23,7 +24,7 @@ export function AttachmentActions({ repoId, noteId, attachmentId, fileType }: At
       ) : (
         <button
           className="rounded border border-gray-300 px-2 py-1 text-gray-500 transition-colors hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700"
-          onClick={() => window.alert("预览仅支持 PDF 文件，请使用下载。")}
+          onClick={() => window.alert("预览仅支持 PDF、MD、TXT 文件，请使用下载。")}
           type="button"
         >
           预览
@@ -40,4 +41,3 @@ export function AttachmentActions({ repoId, noteId, attachmentId, fileType }: At
     </div>
   );
 }
-

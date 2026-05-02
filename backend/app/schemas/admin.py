@@ -203,6 +203,21 @@ class AuthAuditLogResponse(BaseModel):
     logs: list[AuthAuditLogItem]
 
 
+class AdminPasswordResetRequestItem(BaseModel):
+    id: int
+    user_id: int
+    username: str
+    full_name: str
+    department_name: str | None
+    position: str | None
+    requested_at: str
+
+
+class AdminPasswordResetRequestsResponse(BaseModel):
+    total: int
+    requests: list[AdminPasswordResetRequestItem]
+
+
 class RepositoryCreateRequest(BaseModel):
     slug: str
     name: str
@@ -256,6 +271,8 @@ class UserCreateRequest(BaseModel):
     department_id: int | None = None
     position: str | None = None
     gender: str | None = None
+    phone: str | None = None
+    email: str | None = None
     clearance_level: int = Field(default=1, ge=1, le=3)
 
 

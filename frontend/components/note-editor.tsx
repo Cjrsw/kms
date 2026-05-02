@@ -431,7 +431,7 @@ export function NoteEditor({
                     ref={fileInputRef}
                     type="file"
                     className="hidden"
-                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    accept=".pdf,.docx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain"
                     onChange={handleFileChange}
                   />
                 </>

@@ -15,6 +15,7 @@ import {
   deleteNoteAdmin,
   deleteRepositoryAdmin,
   deleteUserAdmin,
+  resetUserPasswordAdmin,
   updateAdminCorsOrigins,
   updateDepartmentAdmin,
   updateFolderAdmin,
@@ -71,6 +72,23 @@ function finishAdminMutation(formData: FormData, fallbackPath: string) {
   revalidatePath("/search");
   revalidatePath("/qa");
   redirect(returnPath);
+}
+
+function redirectAdminFormError(path: string, message: string): never {
+  const params = new URLSearchParams();
+  params.set("form_error", message);
+  redirect(`${path}${path.includes("?") ? "&" : "?"}${params.toString()}`);
+}
+
+function resolveAdminUserError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === "Email already exists.") {
+    return "邮箱已被其他账号使用，请更换邮箱或留空。";
+  }
+  if (message === "Username already exists.") {
+    return "登录账号已存在，请调整姓名后重试。";
+  }
+  return message || "操作失败，请检查填写内容后重试。";
 }
 
 function parseBoolean(formData: FormData, key: string): boolean {
@@ -231,33 +249,54 @@ export async function deleteNoteAction(formData: FormData) {
 }
 
 export async function createUserAction(formData: FormData) {
-  await createUserAdmin({
-    full_name: parseRequiredString(formData, "full_name"),
-    department_id: parseOptionalNumber(formData, "department_id"),
-    position: parseRequiredString(formData, "position") || null,
-    gender: parseRequiredString(formData, "gender") || null,
-    clearance_level: parseRequiredNumber(formData, "clearance_level")
-  });
+  try {
+    await createUserAdmin({
+      full_name: parseRequiredString(formData, "full_name"),
+      department_id: parseOptionalNumber(formData, "department_id"),
+      position: parseRequiredString(formData, "position") || null,
+      gender: parseRequiredString(formData, "gender") || null,
+      phone: parseRequiredString(formData, "phone") || null,
+      email: parseRequiredString(formData, "email") || null,
+      clearance_level: parseRequiredNumber(formData, "clearance_level")
+    });
+  } catch (error) {
+    redirectAdminFormError("/admin/users?modal=create", resolveAdminUserError(error));
+  }
   finishAdminMutation(formData, "/admin/users");
 }
 
 export async function updateUserAction(formData: FormData) {
-  await updateUserAdmin(String(formData.get("user_id")), {
-    full_name: parseRequiredString(formData, "full_name"),
-    department_id: parseOptionalNumber(formData, "department_id"),
-    position: parseRequiredString(formData, "position") || null,
-    gender: parseRequiredString(formData, "gender") || null,
-    phone: parseRequiredString(formData, "phone") || null,
-    email: parseRequiredString(formData, "email") || null,
-    bio: parseRequiredString(formData, "bio") || null,
-    clearance_level: parseRequiredNumber(formData, "clearance_level"),
-    is_active: parseBoolean(formData, "is_active"),
-  });
+  const userId = String(formData.get("user_id"));
+  try {
+    await updateUserAdmin(userId, {
+      full_name: parseRequiredString(formData, "full_name"),
+      department_id: parseOptionalNumber(formData, "department_id"),
+      position: parseRequiredString(formData, "position") || null,
+      gender: parseRequiredString(formData, "gender") || null,
+      phone: parseRequiredString(formData, "phone") || null,
+      email: parseRequiredString(formData, "email") || null,
+      bio: parseRequiredString(formData, "bio") || null,
+      clearance_level: parseRequiredNumber(formData, "clearance_level"),
+      is_active: parseBoolean(formData, "is_active"),
+    });
+  } catch (error) {
+    redirectAdminFormError(`/admin/users?modal=edit&user_id=${encodeURIComponent(userId)}`, resolveAdminUserError(error));
+  }
   finishAdminMutation(formData, "/admin/users");
 }
 
 export async function deleteUserAction(formData: FormData) {
   await deleteUserAdmin(String(formData.get("user_id")));
+  finishAdminMutation(formData, "/admin/users");
+}
+
+export async function resetUserPasswordAction(formData: FormData) {
+  const userId = String(formData.get("user_id"));
+  try {
+    await resetUserPasswordAdmin(userId);
+  } catch (error) {
+    redirectAdminFormError(`/admin/users?modal=edit&user_id=${encodeURIComponent(userId)}`, resolveAdminUserError(error));
+  }
   finishAdminMutation(formData, "/admin/users");
 }
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
@@ -19,7 +19,7 @@ from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.ai import QaAuditLog
 from app.models.content import Folder, Note, Repository
-from app.models.user import AuthAuditLog, Department, Role, User, UserRole
+from app.models.user import AuthAuditLog, Department, PasswordResetRequest, Role, User, UserRole
 from app.schemas.ai import (
     AdminQASystemPromptResponse,
     AdminQASystemPromptUpdateRequest,
@@ -31,6 +31,8 @@ from app.schemas.admin import (
     HomeAnnouncementResponse,
     HomeAnnouncementUpdateRequest,
     AdminNoteItem,
+    AdminPasswordResetRequestItem,
+    AdminPasswordResetRequestsResponse,
     AdminRepositoryItem,
     AdminRepositoriesResponse,
     AdminRepositorySummaryItem,
@@ -56,6 +58,7 @@ from app.schemas.admin import (
     UserCreateRequest,
     UserUpdateRequest,
 )
+from app.services.audit import record_auth_audit
 from app.services.note_indexing import enqueue_note_index
 from app.services.search import index_note
 from app.services.markdown import resolve_note_body
@@ -785,6 +788,39 @@ def list_users(
     )
 
 
+@router.get(
+    "/password-reset-requests",
+    response_model=AdminPasswordResetRequestsResponse,
+    dependencies=[ADMIN_DEPENDENCY],
+)
+def list_password_reset_requests(
+    db: Annotated[Session, Depends(get_db)],
+    status_filter: str = "pending",
+) -> AdminPasswordResetRequestsResponse:
+    normalized_status = status_filter.strip() if status_filter else "pending"
+    query = (
+        db.query(PasswordResetRequest)
+        .options(selectinload(PasswordResetRequest.user).selectinload(User.department))
+        .join(User, PasswordResetRequest.user_id == User.id)
+    )
+    if normalized_status != "all":
+        query = query.filter(PasswordResetRequest.status == normalized_status)
+    reset_requests = query.order_by(PasswordResetRequest.requested_at.desc(), PasswordResetRequest.id.desc()).limit(100).all()
+    items = [
+        AdminPasswordResetRequestItem(
+            id=item.id,
+            user_id=item.user_id,
+            username=item.username,
+            full_name=item.user.full_name if item.user else item.username,
+            department_name=item.user.department.name if item.user and item.user.department else None,
+            position=item.user.position if item.user else None,
+            requested_at=item.requested_at.isoformat(),
+        )
+        for item in reset_requests
+    ]
+    return AdminPasswordResetRequestsResponse(total=len(items), requests=items)
+
+
 @router.get("/roles", response_model=RolesResponse, dependencies=[ADMIN_DEPENDENCY])
 def list_roles() -> RolesResponse:
     return RolesResponse(roles=[ADMIN_ROLE_CODE, EMPLOYEE_ROLE_CODE])
@@ -934,11 +970,16 @@ def create_user(payload: UserCreateRequest, db: Annotated[Session, Depends(get_d
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Full name is required.")
 
     username = _generate_employee_username(db, full_name)
+    email = payload.email.strip() if payload.email else None
+    phone = payload.phone.strip() if payload.phone else None
+    if email:
+        _ensure_unique_username_email(db, username=username, email=email)
+
     user = User(
         username=username,
         full_name=full_name,
-        email=None,
-        phone=None,
+        email=email,
+        phone=phone,
         position=(payload.position or "").strip() or None,
         gender=(payload.gender or "").strip() or None,
         hashed_password=get_password_hash("123456"),
@@ -1008,6 +1049,63 @@ def update_user(user_id: int, payload: UserUpdateRequest, db: Annotated[Session,
     db.add(user)
     db.commit()
     db.refresh(user)
+    return _serialize_user(user)
+
+
+@router.post("/users/{user_id}/reset-password", response_model=AdminUserItem)
+def reset_user_password(
+    user_id: int,
+    request: Request,
+    current_user: Annotated[User, ADMIN_DEPENDENCY],
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminUserItem:
+    user = (
+        db.query(User)
+        .options(
+            selectinload(User.roles).selectinload(UserRole.role),
+            selectinload(User.department),
+        )
+        .filter(User.id == user_id)
+        .first()
+    )
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if _has_role(user, ADMIN_ROLE_CODE):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="System admin user password cannot be reset here.")
+
+    user.hashed_password = get_password_hash("123456")
+    user.need_password_change = True
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.token_version += 1
+    db.add(user)
+
+    pending_requests = (
+        db.query(PasswordResetRequest)
+        .filter(
+            PasswordResetRequest.user_id == user.id,
+            PasswordResetRequest.status == "pending",
+        )
+        .all()
+    )
+    resolved_at = datetime.now(UTC).replace(tzinfo=None)
+    for reset_request in pending_requests:
+        reset_request.status = "resolved"
+        reset_request.resolved_at = resolved_at
+        reset_request.resolved_by_user_id = current_user.id
+        db.add(reset_request)
+
+    db.commit()
+    db.refresh(user)
+    record_auth_audit(
+        db,
+        event_type="admin_password_reset",
+        status="success",
+        request=request,
+        user=user,
+        username=user.username,
+        detail=f"reset_by={current_user.username}",
+    )
     return _serialize_user(user)
 
 

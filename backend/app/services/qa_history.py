@@ -230,9 +230,9 @@ def _filter_existing_sources(db: Session, *, user: User, sources: list[QaSourceI
                 snippet=source.snippet,
                 clearance_level=note.min_clearance_level,
                 attachment_count=len(note.attachments),
-                score=source.score,
+                score=getattr(source, "score", None),
                 updated_at=note.updated_at.isoformat(),
-                hit_mode=source.hit_mode,
+                hit_mode=getattr(source, "hit_mode", None),
             )
         )
     return filtered

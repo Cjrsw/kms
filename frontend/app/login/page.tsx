@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "../../lib/auth";
 import { PasswordVisibilityInput } from "@/components/password-visibility-input";
+import { ContactAdminButton } from "./contact-admin-button";
 import { loginAction } from "./actions";
 import { LoginSubmitButton } from "./login-submit-button";
 
@@ -147,7 +148,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                   <span className="kms-session-dot" />
                   <span>SESSION TTL // 12H 安全会话</span>
                 </div>
-                <div className="kms-contact-admin">CONTACT ADMIN?</div>
+                <ContactAdminButton />
               </div>
 
               <LoginSubmitButton />

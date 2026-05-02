@@ -54,6 +54,14 @@ a {
   padding-left: 1.5rem;
 }
 
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
 .ProseMirror blockquote {
   margin: 1rem 0;
   border-left: 3px solid #cbd5e1;
@@ -2883,6 +2891,14 @@ a {
   padding-left: 22px;
 }
 
+.kms-markdown-body ul {
+  list-style-type: disc;
+}
+
+.kms-markdown-body ol {
+  list-style-type: decimal;
+}
+
 .kms-markdown-body blockquote {
   margin: 22px 0;
   border-left: 3px solid var(--kms-red);
@@ -3576,6 +3592,14 @@ a {
 .kms-editor-prosemirror ol {
   margin: 12px 0;
   padding-left: 24px;
+}
+
+.kms-editor-prosemirror ul {
+  list-style-type: disc;
+}
+
+.kms-editor-prosemirror ol {
+  list-style-type: decimal;
 }
 
 .kms-editor-prosemirror li::marker {
@@ -4330,7 +4354,81 @@ a {
 }
 
 .kms-contact-admin {
+  border: 0;
+  background: transparent;
   color: var(--kms-login-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+
+.kms-contact-admin:hover {
+  color: var(--kms-login-white);
+}
+
+.kms-contact-admin:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.kms-login-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 20px;
+}
+
+.kms-login-modal {
+  width: min(460px, 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #080a0f;
+  color: var(--kms-login-white);
+  padding: 28px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.55);
+}
+
+.kms-login-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 16px;
+}
+
+.kms-login-modal-header h2 {
+  margin: 0;
+  font-family: Impact, "Arial Narrow", sans-serif;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+
+.kms-login-modal p {
+  margin: 22px 0;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.8;
+}
+
+.kms-login-modal-close {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  padding: 8px;
+}
+
+.kms-login-modal-close:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--kms-login-white);
+}
+
+.kms-login-modal-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .kms-login-submit-btn {

@@ -106,7 +106,7 @@ export default async function NoteEditPage({ params }: NoteEditPageProps) {
           <section className="kms-sidebar-block">
             <div className="kms-block-title">ATTACHMENTS // 附件管理</div>
             <p className="kms-note-edit-help">
-              上传入口在编辑器工具栏；这里负责预览、下载、替换和删除。PDF 可预览，DOCX 会提示下载。
+              上传入口在编辑器工具栏；这里负责预览、下载、替换和删除。PDF/MD/TXT 可预览，DOCX 会提示下载。
             </p>
 
             <div className="kms-edit-attachment-list">

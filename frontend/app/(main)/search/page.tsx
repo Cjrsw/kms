@@ -44,10 +44,14 @@ function buildSearchHref(params: Record<string, string | number | undefined | nu
   return `/search?${query.toString()}`;
 }
 
-function humanizeFileType(fileType: "all" | "note" | "pdf" | "docx"): string {
+type SearchFileType = "all" | "note" | "pdf" | "docx" | "md" | "txt";
+
+function humanizeFileType(fileType: SearchFileType): string {
   if (fileType === "note") return "无附件笔记";
   if (fileType === "pdf") return "PDF";
   if (fileType === "docx") return "DOCX";
+  if (fileType === "md") return "Markdown";
+  if (fileType === "txt") return "TXT";
   return "全部类型";
 }
 
@@ -60,7 +64,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const normalizedQuery = (sp.q || "").trim();
   const repositorySlug = (sp.repository_slug || "").trim() || undefined;
   const author = (sp.author || "").trim();
-  const fileType = (sp.file_type || "all") as "all" | "note" | "pdf" | "docx";
+  const fileType = (sp.file_type || "all") as SearchFileType;
   const dateFrom = (sp.date_from || "").trim();
   const dateTo = (sp.date_to || "").trim();
   const sortBy = (sp.sort_by || "relevance") as "relevance" | "updated_desc" | "updated_asc";
@@ -131,6 +135,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             <option value="note">无附件笔记</option>
             <option value="pdf">PDF 附件</option>
             <option value="docx">DOCX 文档</option>
+            <option value="md">Markdown 附件</option>
+            <option value="txt">TXT 附件</option>
           </select>
         </div>
 
@@ -256,7 +262,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           ) : (
             <div className="kms-search-empty is-guide">
               <div className="kms-empty-title">全库深度检索</div>
-              <p>支持搜索笔记标题、正文、PDF/DOCX 附件正文，并可按知识仓库、文档类型、发布人员和修改时间筛选。</p>
+              <p>支持搜索笔记标题、正文、PDF/DOCX/MD/TXT 附件正文，并可按知识仓库、文档类型、发布人员和修改时间筛选。</p>
               <div className="kms-search-guide-chips">
                 <span>考勤制度</span>
                 <span>前端规范</span>

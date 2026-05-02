@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
@@ -11,7 +12,7 @@ from app.core.deps import get_current_user
 from app.core.security import get_password_hash, is_password_complex, verify_password
 from app.db.session import get_db
 from app.models.content import Note, NoteFavorite, Repository
-from app.models.user import User
+from app.models.user import PasswordResetRequest, User, UserRole
 from app.schemas.ai import UserModelPreferenceResponse, UserModelPreferenceUpdateRequest
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -21,6 +22,8 @@ from app.schemas.auth import (
     LoginRequest,
     MyNoteItem,
     MyNotesResponse,
+    PasswordResetRequestCreate,
+    PasswordResetRequestResponse,
     TokenResponse,
     UpdateProfileRequest,
 )
@@ -90,6 +93,60 @@ def session_login(
         max_age=settings.access_token_expire_minutes * 60,
     )
     return result.token
+
+
+@router.post("/password-reset-requests", response_model=PasswordResetRequestResponse)
+def request_password_reset(
+    payload: PasswordResetRequestCreate,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> PasswordResetRequestResponse:
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required.")
+
+    user = (
+        db.query(User)
+        .options(selectinload(User.roles).selectinload(UserRole.role), selectinload(User.department))
+        .filter(User.username == username)
+        .first()
+    )
+
+    if user is None or any(user_role.role.code == "admin" for user_role in user.roles):
+        record_auth_audit(
+            db,
+            event_type="password_reset_request",
+            status="ignored",
+            request=request,
+            username=username,
+            detail="unknown_or_admin_account",
+        )
+        return PasswordResetRequestResponse()
+
+    existing = (
+        db.query(PasswordResetRequest)
+        .filter(
+            PasswordResetRequest.user_id == user.id,
+            PasswordResetRequest.status == "pending",
+        )
+        .first()
+    )
+    if existing is None:
+        db.add(PasswordResetRequest(user_id=user.id, username=user.username, status="pending"))
+    else:
+        existing.requested_at = datetime.utcnow()
+        db.add(existing)
+    db.commit()
+
+    record_auth_audit(
+        db,
+        event_type="password_reset_request",
+        status="success",
+        request=request,
+        user=user,
+        detail="employee_requested_admin_reset",
+    )
+    return PasswordResetRequestResponse()
 
 
 @router.post("/session-logout", status_code=status.HTTP_204_NO_CONTENT)

@@ -220,7 +220,7 @@ export type SearchQueryParams = {
   q?: string;
   repository_slug?: string;
   author?: string;
-  file_type?: "all" | "note" | "pdf" | "docx";
+  file_type?: "all" | "note" | "pdf" | "docx" | "md" | "txt";
   date_from?: string;
   date_to?: string;
   sort_by?: "relevance" | "updated_desc" | "updated_asc";
@@ -412,6 +412,21 @@ export type AdminUsersResponse = {
   users: AdminUserItem[];
   roles: string[];
   departments: DepartmentItem[];
+};
+
+export type AdminPasswordResetRequestItem = {
+  id: number;
+  user_id: number;
+  username: string;
+  full_name: string;
+  department_name: string | null;
+  position: string | null;
+  requested_at: string;
+};
+
+export type AdminPasswordResetRequestsResponse = {
+  total: number;
+  requests: AdminPasswordResetRequestItem[];
 };
 
 export type AdminCorsOrigins = {
@@ -1021,6 +1036,8 @@ export async function createUserAdmin(payload: {
   department_id?: number | null;
   position?: string | null;
   gender?: string | null;
+  phone?: string | null;
+  email?: string | null;
   clearance_level: number;
 }): Promise<AdminUserItem> {
   return apiJsonRequest<AdminUserItem>("/admin/users", "POST", payload);
@@ -1045,6 +1062,14 @@ export async function updateUserAdmin(
 
 export async function deleteUserAdmin(userId: string): Promise<void> {
   await apiJsonRequest<void>(`/admin/users/${userId}`, "DELETE");
+}
+
+export async function resetUserPasswordAdmin(userId: string): Promise<AdminUserItem> {
+  return apiJsonRequest<AdminUserItem>(`/admin/users/${userId}/reset-password`, "POST");
+}
+
+export async function getAdminPasswordResetRequests(): Promise<AdminPasswordResetRequestsResponse> {
+  return apiFetch<AdminPasswordResetRequestsResponse>("/admin/password-reset-requests");
 }
 
 export async function createDepartmentAdmin(payload: {

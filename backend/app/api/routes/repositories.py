@@ -32,6 +32,7 @@ from app.services.content_cleanup import (
     collect_note_cleanup_payload,
 )
 from app.services.note_indexing import enqueue_note_index
+from app.services.ingestion import AttachmentExtractionError, decode_text_attachment
 from app.services.markdown import resolve_note_body
 from app.services.attachment_ingestion import enqueue_attachment_ingestion
 from app.services.storage import (
@@ -42,7 +43,7 @@ from app.services.storage import (
 )
 
 router = APIRouter()
-ALLOWED_ATTACHMENT_TYPES = {"pdf", "docx"}
+ALLOWED_ATTACHMENT_TYPES = {"pdf", "docx", "md", "txt"}
 MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024
 ADMIN_ROLE_CODE = "admin"
 LATEST_NOTE_WINDOW = timedelta(days=1)
@@ -613,7 +614,7 @@ async def upload_attachment(
     if file_extension not in ALLOWED_ATTACHMENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF and DOCX attachments are supported in the MVP.",
+            detail="Only PDF, DOCX, MD, and TXT attachments are supported.",
         )
 
     file_bytes = await file.read()
@@ -706,8 +707,15 @@ def preview_attachment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment object not found in storage.")
 
     filename = quote(attachment.file_name)
+    content = object_bytes
+    if attachment.file_type in {"md", "txt"}:
+        try:
+            content = decode_text_attachment(object_bytes).encode("utf-8")
+        except AttachmentExtractionError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
     return Response(
-        content=object_bytes,
+        content=content,
         media_type=_resolve_attachment_media_type(attachment.file_type),
         headers={
             "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
@@ -774,7 +782,7 @@ async def replace_attachment(
     if file_extension not in ALLOWED_ATTACHMENT_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF and DOCX attachments are supported in the MVP.",
+            detail="Only PDF, DOCX, MD, and TXT attachments are supported.",
         )
 
     file_bytes = await file.read()
@@ -915,6 +923,10 @@ def _resolve_attachment_media_type(file_type: str) -> str:
         return "application/pdf"
     if file_type == "docx":
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if file_type == "md":
+        return "text/markdown; charset=utf-8"
+    if file_type == "txt":
+        return "text/plain; charset=utf-8"
     return "application/octet-stream"
 
 

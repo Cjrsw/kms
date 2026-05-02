@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { changeMyPassword, deleteMyAvatar, updateMyProfile, uploadMyAvatar } from "@/lib/api";
+import { deleteMyAvatar, updateMyProfile, uploadMyAvatar } from "@/lib/api";
 
 function parseOptionalString(formData: FormData, key: string): string | null {
   const value = String(formData.get(key) ?? "").trim();
@@ -28,31 +28,4 @@ export async function updateProfileAction(formData: FormData) {
   revalidatePath("/profile");
   revalidatePath("/profile/edit");
   redirect("/profile?saved=1");
-}
-
-export async function changePasswordAction(formData: FormData) {
-  const currentPassword = String(formData.get("current_password") ?? "").trim();
-  const newPassword = String(formData.get("new_password") ?? "").trim();
-  const confirmPassword = String(formData.get("confirm_password") ?? "").trim();
-  if (!currentPassword || !newPassword || !confirmPassword) {
-    redirect("/profile?mode=password&pwd_error=required");
-  }
-  if (newPassword !== confirmPassword) {
-    redirect("/profile?mode=password&pwd_error=confirm");
-  }
-  if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,64}$/.test(newPassword)) {
-    redirect("/profile?mode=password&pwd_error=rule");
-  }
-
-  try {
-    await changeMyPassword({
-      current_password: currentPassword,
-      new_password: newPassword,
-    });
-  } catch {
-    redirect("/profile?mode=password&pwd_error=incorrect");
-  }
-  revalidatePath("/profile");
-  revalidatePath("/profile/password");
-  redirect("/logout");
 }

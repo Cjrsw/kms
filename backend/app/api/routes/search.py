@@ -20,7 +20,7 @@ def search(
     q: Annotated[str | None, Query(description="Search query")] = None,
     repository_slug: Annotated[str | None, Query()] = None,
     author: Annotated[str | None, Query(max_length=80)] = None,
-    file_type: Annotated[str, Query(pattern="^(all|note|pdf|docx)$")] = "all",
+    file_type: Annotated[str, Query(pattern="^(all|note|pdf|docx|md|txt)$")] = "all",
     date_from: Annotated[date | None, Query()] = None,
     date_to: Annotated[date | None, Query()] = None,
     sort_by: Annotated[str, Query(pattern="^(relevance|updated_desc|updated_asc)$")] = "relevance",

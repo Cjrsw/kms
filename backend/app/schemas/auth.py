@@ -6,6 +6,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordResetRequestCreate(BaseModel):
+    username: str
+
+
+class PasswordResetRequestResponse(BaseModel):
+    status: str = "ok"
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

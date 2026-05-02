@@ -8,6 +8,7 @@ from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.models.content import Attachment, AttachmentContent
+from app.services.markdown import markdown_to_plain_text
 
 
 class AttachmentExtractionError(Exception):
@@ -26,9 +27,23 @@ def extract_attachment_text_with_error(file_name: str, file_bytes: bytes) -> tup
             return _extract_pdf_text(file_bytes), None
         if suffix == "docx":
             return _extract_docx_text(file_bytes), None
+        if suffix == "md":
+            return markdown_to_plain_text(decode_text_attachment(file_bytes)), None
+        if suffix == "txt":
+            return decode_text_attachment(file_bytes), None
     except AttachmentExtractionError as exc:
         return "", str(exc)
     return "", None
+
+
+def decode_text_attachment(file_bytes: bytes) -> str:
+    """Decode text attachments for preview and indexing without changing stored bytes."""
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return file_bytes.decode(encoding).strip()
+        except UnicodeDecodeError:
+            continue
+    raise AttachmentExtractionError("文本附件无法解析，请确认文件编码为 UTF-8 或 GB18030。")
 
 
 def upsert_attachment_text(
